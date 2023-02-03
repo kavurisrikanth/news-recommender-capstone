@@ -1,0 +1,38 @@
+[(0,
+  '0.012*"new" + 0.008*"customer" + 0.008*"company" + 0.008*"companies" + '
+  '0.008*"digital" + 0.007*"year" + 0.007*"business" + 0.007*"technology" + '
+  '0.007*"customers" + 0.005*"services"'),
+ (1,
+  '0.003*"sha" + 0.002*"encrypt" + 0.001*"requesting" + 0.000*"decrypt" + '
+  '0.000*"cipher" + 0.000*"prng" + 0.000*"cracking" + 0.000*"jjwt" + '
+  '0.000*"bcrypt" + 0.000*"panther"'),
+ (2,
+  '0.012*"code" + 0.011*"use" + 0.007*"using" + 0.006*"api" + 0.005*"drupal" + '
+  '0.005*"data" + 0.005*"also" + 0.005*"need" + 0.005*"example" + '
+  '0.005*"java"'),
+ (3,
+  '0.030*"aws" + 0.017*"network" + 0.011*"ip" + 0.009*"http" + 0.009*"load" + '
+  '0.008*"address" + 0.008*"instances" + 0.008*"vpc" + 0.008*"traffic" + '
+  '0.008*"ec"'),
+ (4,
+  '0.010*"one" + 0.010*"time" + 0.008*"people" + 0.008*"like" + 0.008*"work" + '
+  '0.008*"team" + 0.006*"way" + 0.006*"make" + 0.006*"get" + 0.005*"would"'),
+ (5,
+  '0.029*"app" + 0.025*"google" + 0.018*"android" + 0.016*"apple" + '
+  '0.015*"users" + 0.013*"apps" + 0.013*"facebook" + 0.012*"mobile" + '
+  '0.011*"user" + 0.010*"new"'),
+ (6,
+  '0.001*"drone" + 0.000*"agricultores" + 0.000*"qualcomm" + 0.000*"ises" + '
+  '0.000*"agricultor" + 0.000*"snapdragon" + 0.000*"chainsaw" + 0.000*"wing" + '
+  '0.000*"finos" + 0.000*"cardo"'),
+ (7,
+  '0.070*"de" + 0.033*"que" + 0.023*"para" + 0.020*"em" + 0.017*"da" + '
+  '0.016*"um" + 0.016*"com" + 0.015*"uma" + 0.011*"os" + 0.009*"como"'),
+ (8,
+  '0.038*"data" + 0.025*"learning" + 0.021*"cloud" + 0.018*"google" + '
+  '0.017*"machine" + 0.011*"science" + 0.011*"computer" + 0.011*"ai" + '
+  '0.007*"intelligence" + 0.006*"systems"'),
+ (9,
+  '0.017*"students" + 0.016*"cs" + 0.016*"teachers" + 0.012*"school" + '
+  '0.012*"computer" + 0.010*"mr" + 0.007*"game" + 0.007*"see" + 0.007*"music" '
+  '+ 0.007*"classrooms"')]

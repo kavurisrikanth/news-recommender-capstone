@@ -1,0 +1,38 @@
+[(0,
+  '0.013*"new" + 0.009*"year" + 0.009*"company" + 0.008*"technology" + '
+  '0.008*"companies" + 0.007*"digital" + 0.007*"customer" + 0.007*"customers" '
+  '+ 0.006*"business" + 0.005*"platform"'),
+ (1,
+  '0.030*"java" + 0.029*"file" + 0.023*"code" + 0.016*"command" + '
+  '0.015*"method" + 0.013*"name" + 0.012*"node" + 0.012*"kotlin" + 0.011*"js" '
+  '+ 0.010*"plugin"'),
+ (2,
+  '0.010*"team" + 0.009*"data" + 0.008*"work" + 0.008*"one" + 0.008*"learning" '
+  '+ 0.008*"people" + 0.007*"time" + 0.006*"science" + 0.005*"way" + '
+  '0.005*"machine"'),
+ (3,
+  '0.220*"google" + 0.117*"cloud" + 0.026*"evernote" + 0.021*"amazon" + '
+  '0.015*"aws" + 0.009*"engine" + 0.006*"paas" + 0.006*"platform" + '
+  '0.006*"centers" + 0.005*"idc"'),
+ (4,
+  '0.011*"use" + 0.011*"data" + 0.011*"code" + 0.009*"using" + 0.007*"api" + '
+  '0.006*"drupal" + 0.006*"also" + 0.006*"example" + 0.005*"need" + '
+  '0.005*"project"'),
+ (5,
+  '0.000*"hirano" + 0.000*"gzipped" + 0.000*"mathias" + 0.000*"keyup" + '
+  '0.000*"kesteren" + 0.000*"instanceof" + 0.000*"infuriating" + 0.000*"obj" + '
+  '0.000*"getchapter" + 0.000*"foreach"'),
+ (6,
+  '0.003*"drone" + 0.002*"santa" + 0.000*"neurala" + 0.000*"versace" + '
+  '0.000*"rovers" + 0.000*"magistrados" + 0.000*"cnj" + 0.000*"matus" + '
+  '0.000*"pedestrians" + 0.000*"automaker"'),
+ (7,
+  '0.073*"de" + 0.033*"que" + 0.024*"para" + 0.021*"em" + 0.018*"da" + '
+  '0.017*"um" + 0.016*"com" + 0.015*"uma" + 0.011*"os" + 0.009*"como"'),
+ (8,
+  '0.012*"like" + 0.010*"app" + 0.009*"get" + 0.009*"one" + 0.008*"users" + '
+  '0.007*"time" + 0.007*"user" + 0.006*"facebook" + 0.006*"use" + 0.006*"new"'),
+ (9,
+  '0.041*"bank" + 0.033*"blockchain" + 0.027*"financial" + 0.027*"banking" + '
+  '0.023*"banks" + 0.016*"reader" + 0.015*"bitcoin" + 0.014*"swift" + '
+  '0.010*"credit" + 0.009*"institutions"')]
