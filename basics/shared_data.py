@@ -1,25 +1,32 @@
 import pandas as pd
 
-class Singleton(type):
-    _instances = {}
+class _SharedData:
+    _instance = None
 
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-class SharedData(metaclass=Singleton):
     transactions = None
     content = None
 
+    txns_file_name = 'https://raw.githubusercontent.com/kavurisrikanth/news-recommender-capstone/master/data/consumer_transanctions.csv'
+    cnt_file_name = 'https://raw.githubusercontent.com/kavurisrikanth/news-recommender-capstone/master/data/platform_content.csv'
+
+    data_path = '../data/'
+
     def __init__(self):
-        super.__init__()
+        if not self.transactions:
+            self.transactions = pd.read_csv(self.txns_file_name)
+        if not self.content:
+            self.content = pd.read_csv(self.cnt_file_name)
 
-    def store_transactions(self, txns):
-        self.transactions = txns
+    def get_transactions(self):
+        return self.transactions
 
-    def store_content(self, cnt):
-        self.content = cnt
+    def get_content(self):
+        return self.content
 
-def get_data():
-    return SharedData()
+    def set_content(self, content):
+        self.content = content
+
+def SharedData():
+    if not _SharedData._instance:
+        _SharedData._instance = _SharedData()
+    return _SharedData._instance
