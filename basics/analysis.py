@@ -640,142 +640,96 @@ def get_article_topics(article_id):
     return cnt[cnt['item_id_adj'] == article_id]['topics'].values[0]
 
 
+class ContentBased:
+    def __init__(self, cnt):
+        # ### Content-based filtering
+        # #### Derive keywords from the article text
+        # Join cnt.text_description_lemmatized into a single list
+        words_list = []
+        for doc in cnt.text_description_lemmatized:
+            words_list.append(doc)
 
-# Expose method
+        # #### Create Dictionary, Bag of Words, tfidf model & Similarity matrix
+        from gensim.corpora.dictionary import Dictionary
 
-# ### Content-based filtering
-# #### Derive keywords from the article text
-# Join cnt.text_description_lemmatized into a single list
-words_list = []
-for doc in cnt.text_description_lemmatized:
-    words_list.append(doc)
+        # create a dictionary from words list
+        self.dictionary = Dictionary(words_list)
 
-# #### Create Dictionary, Bag of Words, tfidf model & Similarity matrix
-from gensim.corpora.dictionary import Dictionary
+        number_words = 0
+        for word in words_list:
+            number_words = number_words + len(word)
 
-# create a dictionary from words list
-dictionary = Dictionary(words_list)
+        # ##### Generating Bag of Words
+        bow = self.dictionary.doc2bow(words_list[0])
 
-number_words = 0
-for word in words_list:
-    number_words = number_words + len(word)
+        # Some words are repeated
+        # ##### Generating a corpus
+        #create corpus where the corpus is a bag of words for each document
+        corpus = [self.dictionary.doc2bow(doc) for doc in words_list] 
 
-# ##### Generating Bag of Words
-bow = dictionary.doc2bow(words_list[0])
+        # All the articles are in the corpus, and the length of the first matches the count in the Bag of Words above
+        # ##### Use the TfIdf model on the corpus
+        from gensim.models.tfidfmodel import TfidfModel
 
-# Some words are repeated
-# ##### Generating a corpus
-#create corpus where the corpus is a bag of words for each document
-corpus = [dictionary.doc2bow(doc) for doc in words_list] 
+        #create tfidf model of the corpus
+        self.tfidf = TfidfModel(corpus) 
 
-# All the articles are in the corpus, and the length of the first matches the count in the Bag of Words above
-# ##### Use the TfIdf model on the corpus
-from gensim.models.tfidfmodel import TfidfModel
+        # Again, the lengths are matched
+        # ##### Generate Similarity matrix
+        from gensim.similarities import MatrixSimilarity
 
-#create tfidf model of the corpus
-tfidf = TfidfModel(corpus) 
+        # Create the similarity matrix. This is the most important part where we get the similarities between the movies.
+        self.sims = MatrixSimilarity(self.tfidf[corpus], num_features=len(self.dictionary))
 
-# Again, the lengths are matched
-# ##### Generate Similarity matrix
-from gensim.similarities import MatrixSimilarity
+    # #### Generating recommendations
+    def article_recommendation(self, content):
+        import pandas as pd
+        # get a bag of words from the content
+        query_doc_bow = self.dictionary.doc2bow(content) 
 
-# Create the similarity matrix. This is the most important part where we get the similarities between the movies.
-sims = MatrixSimilarity(tfidf[corpus], num_features=len(dictionary))
+        #convert the regular bag of words model to a tf-idf model
+        query_doc_tfidf = self.tfidf[query_doc_bow] 
 
-# Flatten words_list into a set of unique words
-words_set = set([word for doc in words_list for word in doc])
+        # get similarity values between input movie and all other movies
+        similarity_array = self.sims[query_doc_tfidf] 
 
-len(set(words_set))
+        #Convert to a Series
+        similarity_series = pd.Series(similarity_array.tolist(), index=cnt['item_id_adj']) 
 
-len(sims[corpus[0]])
+        #get the most similar movies 
+        # similarity_output = similarity_series.sort_values(ascending=False)
+        similarity_output = similarity_series
+        
+        return similarity_output
 
-len(sims)
+    def get_articles_matching_article_from_content_based(self, article_id, n=-1):
+        import pandas as pd
+        lemmatized_desc = cnt[cnt['item_id_adj'] == article_id]['text_description_lemmatized'].values[0]
 
-# #### Generating recommendations
-def article_recommendation(content):
-    # get a bag of words from the content
-    query_doc_bow = dictionary.doc2bow(content) 
+        recommendations = self.article_recommendation(lemmatized_desc)
 
-    #convert the regular bag of words model to a tf-idf model
-    query_doc_tfidf = tfidf[query_doc_bow] 
+        recommendations_df = pd.DataFrame(recommendations, columns=['score'])
 
-    # get similarity values between input movie and all other movies
-    similarity_array = sims[query_doc_tfidf] 
+        recommendations_df.reset_index(inplace=True)
 
-    #Convert to a Series
-    similarity_series = pd.Series(similarity_array.tolist(), index=cnt['item_id_adj']) 
+        recommendations_df = cnt.merge(recommendations_df, on='item_id_adj', how='left')
 
-    #get the most similar movies 
-    # similarity_output = similarity_series.sort_values(ascending=False)
-    similarity_output = similarity_series
-    return similarity_output
+        recommendations_df.sort_values(by='score', ascending=False, inplace=True)
 
-def get_articles_matching_article_from_content_based(article_id, n=-1):
-    lemmatized_desc = cnt[cnt['item_id_adj'] == article_id]['text_description_lemmatized'].values[0]
+        keep = ['score', 'title', 'topics', 'item_id_adj']
 
-    recommendations = article_recommendation(lemmatized_desc)
+        recommendations_df.drop(columns=[col for col in recommendations_df if col not in keep], inplace=True)
 
-    recommendations_df = pd.DataFrame(recommendations, columns=['score'])
+        # Drop rows with NaN
+        recommendations_df.dropna(inplace=True)
 
-    recommendations_df.reset_index(inplace=True)
+        # Reset index
+        recommendations_df.reset_index(drop=True, inplace=True)
 
-    recommendations_df = cnt.merge(recommendations_df, on='item_id_adj', how='left')
+        if n > 0:
+            recommendations_df = recommendations_df[:n]
 
-    recommendations_df.sort_values(by='score', ascending=False, inplace=True)
-
-    keep = ['score', 'title', 'topics', 'item_id_adj']
-
-    recommendations_df.drop(columns=[col for col in recommendations_df if col not in keep], inplace=True)
-
-    # Drop rows with NaN
-    recommendations_df.dropna(inplace=True)
-
-    # Reset index
-    recommendations_df.reset_index(drop=True, inplace=True)
-
-    if n > 0:
-        recommendations_df = recommendations_df[:n]
-
-    return recommendations_df
-
-
-get_articles_matching_article_from_content_based(test_article_id, n=10)
-
-
-# 
-# #### Comparing item-based and content-based filtering
-
-num_articles = len(collab_out)
-
-num_articles
-
-# Assign the first num_articles rows from recs_df to content_out
-content_out = recs_df.iloc[:num_articles]
-
-content_out.reset_index(inplace=True)
-
-content_out.head()
-
-cnt[cnt['item_id_adj'] == test_article_id][['title', 'topics']]
-
-# Rename index to article_id
-content_out.rename(columns={'item_id_adj': 'article_id'}, inplace=True)
-content_out.drop(columns=['index'], inplace=True)
-
-content_out.head()
-
-collab_out.head()
-
-# Left join the content_out and collab_out DataFrames on article_id
-out = pd.merge(collab_out, content_out, on='article_id', how='left')
-
-content_out
-
-collab_out
-
-out
-
-content_out.shape
+        return recommendations_df
 
 
 # **************************** HYBRID RECOMMENDATIONS ****************************
