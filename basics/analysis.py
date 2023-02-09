@@ -7,283 +7,12 @@
 
 # Code committed to: https://github.com/kavurisrikanth/news-recommender-capstone
 
-# ### The Basics - Loading data
+txns = None
+cnt = None
 
-# In[1000]:
+load_done = False
 
-
-import pandas as pd
-import numpy as np
-
-import plotly.express as px
-
-
-# In[1001]:
-
-
-txns = pd.read_csv('../data/consumer_transanctions.csv')
-cnt = pd.read_csv('../data/platform_content.csv')
-
-
-# In[1002]:
-
-
-txns.head()
-
-
-# In[1003]:
-
-
-cnt.head()
-
-
-# In[1004]:
-
-
-# shared_data.get_data().store_transactions(txns)
-# shared_data.get_data().store_content(cnt)
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# ### Data preparation
-
-# #### Drop unnecessary columns
-
-# In[1005]:
-
-
-# Drop country, consumer_location, consumer_device_info, consumer_session_id from txns
-txns.drop(columns=['country', 'consumer_location', 'consumer_device_info', 'consumer_session_id'], inplace=True)
-
-
-# In[ ]:
-
-
-
-
-
-# In[1006]:
-
-
-# Drop producer_id, producer_session_id, producer_device_info, producer_location, producer_country, item_type from cnt
-cnt.drop(columns=['producer_id', 'producer_session_id', 'producer_device_info', 'producer_location', 'producer_country', 'item_type'], inplace=True)
-
-
-# In[1007]:
-
-
-content = cnt
-
-
-# In[1008]:
-
-
-content.head()
-
-
-# #### Remove all docs that are not in English
-
-# In[1009]:
-
-
-content.language.value_counts()
-
-
-# In[1010]:
-
-
-content.shape
-
-
-# In[1011]:
-
-
-content = content[content['language'] == 'en']
-
-
-# In[1012]:
-
-
-content.shape
-
-
-# #### Handle articles with duplicated entries
-
-# In[1013]:
-
-
-no_dups = content.sort_values('event_timestamp').drop_duplicates(subset=['title', 'text_description'], keep='last')
-
-
-# In[1014]:
-
-
-no_dups.head()
-
-
-# In[1015]:
-
-
-no_dups.reset_index(inplace=True)
-
-
-# In[1016]:
-
-
-no_dups.interaction_type.value_counts()
-
-
-# In[1017]:
-
-
-no_dups[no_dups['title'] == "Ethereum, a Virtual Currency, Enables Transactions That Rival Bitcoin's"]
-
-
-# In[1018]:
-
-
-content[content['title'] == "Ethereum, a Virtual Currency, Enables Transactions That Rival Bitcoin's"]
-
-
-# The entry in the no duplicates DataFrame is the one with the older timestamp. Makes sense.
-
-# In[1019]:
-
-
-cnt = no_dups
-
-
-# In[ ]:
-
-
-
-
-
-# #### Introduce keywords
-
-# In[1020]:
-
-
-# %pip install gensim
-
-
-# In[1021]:
-
-
-from gensim.utils import simple_preprocess
-
-
-# In[1022]:
-
-
-cnt['text_description_preprocessed'] = cnt['text_description'].apply(lambda x: simple_preprocess(x, deacc=True))
-
-
-# In[1023]:
-
-
-cnt.head()
-
-
-# In[1024]:
-
-
-import nltk
-nltk.download('stopwords')
-from nltk.corpus import stopwords
-stopwords_en = stopwords.words('english')
-
-
-# In[1025]:
-
-
-cnt['text_description_no_stopwords'] = cnt['text_description_preprocessed'].apply(lambda x: [word for word in x if word not in stopwords_en])
-
-
-# In[1026]:
-
-
-cnt.head()
-
-
-# In[1027]:
-
-
-from nltk.stem import WordNetLemmatizer
-lemmatizer = WordNetLemmatizer()
-
-
-# In[1028]:
-
-
-cnt['text_description_lemmatized'] = cnt['text_description_no_stopwords'].apply(lambda x: [lemmatizer.lemmatize(word) for word in x])
-
-
-# In[1029]:
-
-
-cnt.head()
-
-
-# In[1030]:
-
-
-# Drop the columns we don't need anymore
-cnt.drop(['text_description_preprocessed', 'text_description_no_stopwords'], axis=1, inplace=True)
-
-
-# #### Introduce a ratings column
-
-# In[1031]:
-
-
-def to_rating(val):
-    if val == 'content_followed':
-        return 5
-    if val == 'content_commented_on':
-        return 4
-    if val == 'content_saved':
-        return 3
-    if val == 'content_liked':
-        return 2
-    return 1
-
-
-# In[1032]:
-
-
-txns.interaction_type.value_counts()
-
-
-# In[1033]:
-
-
-txns['rating'] = txns.interaction_type.apply(lambda x: to_rating(x))
-
-
-# In[1034]:
-
-
-txns.head()
-
-
-# #### Adjust IDs
-
-# The user and document IDs in the data make no sense. So create new IDs that start from 1.
-
-# In[1035]:
-
+# Helpers
 
 class IdHelper:
     _map = {}
@@ -303,1044 +32,17 @@ class IdHelper:
         self._id += 1
         return num
 
-
-# In[1036]:
-
-
-consumer_helper = IdHelper()
-item_helper = IdHelper()
-
-
-# In[1037]:
-
-
-txns['consumer_id_adj'] = txns['consumer_id'].map(lambda x: consumer_helper.translate(x))
-
-
-# In[1038]:
-
-
-txns.head()
-
-
-# In[1039]:
-
-
-txns['item_id_adj'] = txns['item_id'].map(lambda x: item_helper.translate(x))
-
-
-# In[1040]:
-
-
-# Drop item_id and consumer_id from txns
-txns.drop(columns=['item_id', 'consumer_id'], inplace=True)
-
-
-# In[1041]:
-
-
-txns.head()
-
-
-# Same for content.
-
-# In[1042]:
-
-
-cnt.head()
-
-
-# In[1043]:
-
-
-cnt['item_id_adj'] = cnt['item_id'].map(lambda x: item_helper.translate(x))
-
-
-# In[1044]:
-
-
-# Drop item_id from cnt
-cnt.drop(columns=['item_id'], inplace=True)
-
-
-# In[1045]:
-
-
-cnt.head()
-
-
-# ### EDA
-
-# #### Checking for missing values
-
-# In[1046]:
-
-
-txns.isna().sum()
-
-
-# In[1047]:
-
-
-txns.shape
-
-
-# In[1048]:
-
-
-cnt.isna().sum()
-
-
-# In[1049]:
-
-
-cnt.shape
-
-
-# #### Checking for duplicated ratings
-
-# In[1050]:
-
-
-txns.head()
-
-
-# In[1051]:
-
-
-txns_2 = txns[['consumer_id_adj', 'item_id_adj', 'rating']]
-
-
-# In[1052]:
-
-
-txns_2.head()
-
-
-# In[1053]:
-
-
-duplicates = txns[txns.duplicated(subset=['consumer_id_adj', 'item_id_adj'], keep=False)]
-
-
-# In[1054]:
-
-
-duplicates.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
-
-
-# In[1055]:
-
-
-duplicates.head()
-
-
-# There are duplicated entries i.e., the same user has interacted with the same article multiple times.
-
-# Since multiple interactions could mean that a user liked an article, the duplicates must be considered in the analysis.
-
-# #### For "duplicated" transactions, calculate the average rating of the user for that article
-
-# In[1056]:
-
-
-grp = duplicates.groupby(by=['consumer_id_adj', 'item_id_adj'])['rating'].mean()
-
-
-# In[1057]:
-
-
-grp.head()
-
-
-# In[1058]:
-
-
-grp_df = pd.DataFrame(grp)
-
-
-# In[1059]:
-
-
-grp_df.head()
-
-
-# Renaming the rating column to avoid any potential clash when merged with the original
-
-# In[1060]:
-
-
-grp_df.columns = ['rating_sum']
-
-
-# In[1061]:
-
-
-grp_df.head()
-
-
-# In[1062]:
-
-
-grp_df.reset_index(inplace=True)
-
-
-# In[1063]:
-
-
-grp_df.head()
-
-
-# Check distributions of ratings
-
-# In[1064]:
-
-
-grp_df.describe(percentiles=[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0])
-
-
-# In[1065]:
-
-
-fig = px.box(grp_df, y='rating_sum')
-fig.show()
-
-
-# A majority of the articles are rated 2 or lower. Only a very small number of transactions have a high rating. However, these are not outliers. This is expected, as users would only like a small percentage of the articles in the system.
-
-# #### Add the adjusted rating back to the original transactions DataFrame
-
-# In[1066]:
-
-
-no_dups = txns.drop_duplicates(subset=['consumer_id_adj', 'item_id_adj'])
-
-
-# In[1067]:
-
-
-no_dups.head()
-
-
-# In[1068]:
-
-
-no_dups.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
-
-
-# In[1069]:
-
-
-no_dups.head()
-
-
-# In[1070]:
-
-
-duplicates.shape
-
-
-# In[1071]:
-
-
-no_dups.shape
-
-
-# In[1072]:
-
-
-txns.shape
-
-
-# Merge the two DataFrames
-
-# In[1073]:
-
-
-txns_merged = pd.merge(left=no_dups, right=grp_df, left_on=['consumer_id_adj', 'item_id_adj'], right_on=['consumer_id_adj', 'item_id_adj'], how='left')
-
-
-# In[1074]:
-
-
-txns_merged.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
-
-
-# In[1075]:
-
-
-txns_merged.head(25)
-
-
-# Rows that have rating_sum as NaN were not duplicated in the original. So, the summed rating would just be the rating for these rows.
-
-# In[1076]:
-
-
-txns_merged['ratings_merged'] = txns_merged.rating_sum.fillna(txns_merged.rating)
-
-
-# In[1077]:
-
-
-txns_merged.head(25)
-
-
-# In[1078]:
-
-
-txns_merged.ratings_merged.describe()
-
-
-# The rating is between 1 and 5, so that is good enough.
-
-# In[1079]:
-
-
-txns_merged.drop(columns=['rating_sum'], inplace=True)
-
-
-# In[1080]:
-
-
-txns_merged.head()
-
-
-# In[1081]:
-
-
-txns_merged.rename(columns={'rating': 'rating_original'}, inplace=True)
-
-
-# In[1082]:
-
-
-txns_merged.head()
-
-
-# In[1083]:
-
-
-# txns_merged.rename(columns={'ratings_scaled': 'rating'}, inplace=True)
-txns_merged.rename(columns={'ratings_merged': 'rating'}, inplace=True)
-
-
-# In[1084]:
-
-
-txns_merged.head()
-
-
-# In[1085]:
-
-
-txns = txns_merged
-
-
-# In[1086]:
-
-
-txns.head()
-
-
-# In[1087]:
-
-
-txns.drop(columns=['interaction_type'], inplace=True)
-
-
-# In[1088]:
-
-
-txns.head()
-
-
-# In[1089]:
-
-
-txns.describe()
-
-
-# Consolidated Ratings are between 1 and 4.5, which is expected.
-
-# In[ ]:
-
-
-
-
-
-# #### Plotting
-
-# In[1090]:
-
-
-px.histogram(txns, x='rating')
-
-
-# In[1091]:
-
-
-cnt.head()
-
-
-# In[1092]:
-
-
-px.histogram(cnt, x='language')
-
-
-# In[ ]:
-
-
-
-
-
-# ### Topic Modelling
-
-# Try to create some basic topics under which each article may be categorized
-
-# In[1093]:
-
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import NMF
-
-
-# #### Feature extraction
-
-# In[1094]:
-
-
-vec = TfidfVectorizer(stop_words='english')
-X = vec.fit_transform(cnt['text_description'])
-
-
-# In[1095]:
-
-
-test_df = pd.DataFrame(X.toarray(), columns=vec.get_feature_names())
-
-
-# In[1096]:
-
-
-test_df.head()
-
-
-# #### NMF Decomposition
-
-# In[1097]:
-
-
-num_topics = 10
-nmf = NMF(n_components=num_topics, random_state=42)
-doc_topic = nmf.fit_transform(X)
-topic_term = nmf.components_
-
-
-# In[1098]:
-
-
-# Getting the top 10 words for each topic
-
-words = np.array(vec.get_feature_names())
-topic_words = pd.DataFrame(
-    np.zeros((num_topics, 10)),
-    index=['topic_{}'.format(i + 1) for i in range(num_topics)],
-    columns=['word_{}'.format(i + 1) for i in range(10)]
-).astype(str)
-
-
-# In[1099]:
-
-
-topic_words
-
-
-# Populating topic_words
-
-# In[1100]:
-
-
-for i in range(num_topics):
-    idx = topic_term[i].argsort()[::-1][:10]
-    topic_words.iloc[i] = words[idx]
-
-
-# In[1101]:
-
-
-topic_words
-
-
-# In[1102]:
-
-
-# Create a topic mapping for topic_words
-# The topics in order are: 'Digital Marketing', 'E-Commerce', 'Cloud Computing', 'Data Science & Machine Learning', 'Cryptocurrency', 'Google', 'Apple', 'Facebook', 'Operating Systems & Runtimes', 'Computer Programming'
-topic_mapping = {
-    'topic_1': 'Digital Marketing',
-    'topic_2': 'E-Commerce',
-    'topic_3': 'Cloud Computing',
-    'topic_4': 'Data Science & Machine Learning',
-    'topic_5': 'Cryptocurrency',
-    'topic_6': 'Google',
-    'topic_7': 'Apple',
-    'topic_8': 'Facebook',
-    'topic_9': 'Operating Systems & Runtimes',
-    'topic_10': 'Computer Programming'
-}
-
-
-# In[1103]:
-
-
-doc_topic_df = pd.DataFrame(doc_topic, columns=['topic_{}'.format(i + 1) for i in range(num_topics)])
-
-
-# In[1104]:
-
-
-# Get the 5 topics with the highest probabilities for each document
-doc_topic_df['top_topics'] = doc_topic_df.apply(lambda x: x.sort_values(ascending=False).index[:5].tolist(), axis=1)
-
-
-# In[1105]:
-
-
-doc_topic_df.head()
-
-
-# In[1106]:
-
-
-# Get the mapping for doc_topic_df.top_topics from topic_mapping and create a new column
-doc_topic_df['top_topics_mapped'] = doc_topic_df.top_topics.apply(lambda x: [topic_mapping[i] for i in x])
-
-
-# In[1107]:
-
-
-doc_topic_df.head()
-
-
-# In[1108]:
-
-
-doc_topic_df.shape
-
-
-# In[1109]:
-
-
-# Add doc_topic_df.top_topics_mapped to cnt
-cnt = pd.concat([cnt, doc_topic_df.top_topics_mapped], axis=1)
-
-
-# In[1110]:
-
-
-cnt.head()
-
-
-# In[1111]:
-
-
-# Rename cnt.top_topics_mapped to cnt.topics
-cnt.rename(columns={'top_topics_mapped': 'topics'}, inplace=True)
-
-
-# In[1112]:
-
-
-cnt.head()
-
-
-# With this, we have some idea of what topics each article is talking about.
-
-# ## Getting articles for a User
-
-# Consider user-based collaborative filtering, and ALS. Whichever gives the best result would be the model to use.
-
-# ### User-based collaborative filtering
-
-# In[1113]:
-
-
-n_users = txns.consumer_id_adj.nunique()
-
-
-# In[1114]:
-
-
-n_articles = txns.item_id_adj.nunique()
-
-
-# In[1115]:
-
-
-# txns.consumer_id.values
-
-
-# In[1116]:
-
-
-print(f'Num users: {n_users}, Num articles: {n_articles}')
-
-
-# ### Train test split
-
-# In[1117]:
-
-
-import sklearn
-train, test = sklearn.model_selection.train_test_split(txns, test_size=0.3, random_state=42)
-
-
-# In[1118]:
-
-
-train.shape
-
-
-# In[1119]:
-
-
-test.shape
-
-
-# In[1120]:
-
-
-train.describe(percentiles=[0.25, 0.5, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0])
-
-
-# In[ ]:
-
-
-
-
-
-# ### User-Article matrix
-
-# Since this is collaborative filtering, we will consider the transactions matrix. From this, we construct a matrix of the ratings given by users for each product.
-
-# Populate the training matrix
-
-# In[1121]:
-
-
-def create_and_populate_user_article_matrix(data):
-    data_matrix = np.zeros((n_users, n_articles))
-
-    for line in data.itertuples():
-        # print(line)
-        # print(type(line))
-        # print(f'UserId: {line.consumer_id_adj}, ArticleId: {line.item_id_adj}, Rating: {line.rating}')
-        # break
-        user_id = line.consumer_id_adj
-        article_id = line.item_id_adj
-        rating = line.rating
-
-        data_matrix[user_id - 1, article_id - 1] = rating
-    
-    return data_matrix
-
-
-# Fill the training matrix with rating values
-
-# In[1122]:
-
-
-data_matrix = create_and_populate_user_article_matrix(train)
-
-
-# In[1123]:
-
-
-data_matrix
-
-
-# In[1124]:
-
-
-data_matrix.shape
-
-
-# Dimensions match the number of unique users & articles
-
-# Populate the testing matrix
-
-# In[1125]:
-
-
-data_matrix_test = create_and_populate_user_article_matrix(test)
-
-
-# In[1126]:
-
-
-data_matrix_test
-
-
-# In[1127]:
-
-
-data_matrix_test.shape
-
-
-# ### Pairwise Distance
-
-# In[1128]:
-
-
-from sklearn.metrics.pairwise import pairwise_distances
-
-
-# In[1129]:
-
-
-user_similarity = 1 - pairwise_distances(data_matrix, metric='cosine')
-
-
-# In[1130]:
-
-
-user_similarity
-
-
-# In[1131]:
-
-
-user_similarity.shape
-
-
-# Take the transpose of the data matrix in order to calculate the article similarity. Will be used later.
-
-# In[1132]:
-
-
-# data_matrix.shape
-
-
-# In[1133]:
-
-
-# data_matrix.T.shape
-
-
-# In[1134]:
-
-
-article_similarity = 1 - pairwise_distances(data_matrix.T, metric='cosine')
-
-
-# In[1135]:
-
-
-article_similarity
-
-
-# In[1136]:
-
-
-article_similarity.shape
-
-
-# ### Get dot product of data matrix with similarity matrix
-
-# In[1137]:
-
-
-user_similarity.shape
-
-
-# In[1138]:
-
-
-data_matrix_test.shape
-
-
-# In[1139]:
-
-
-article_prediction = np.dot(user_similarity, data_matrix_test)
-
-
-# In[1140]:
-
-
-article_prediction.shape
-
-
-# In[1141]:
-
-
-article_pred_df = pd.DataFrame(article_prediction)
-
-
-# In[1142]:
-
-
-article_pred_df.head()
-
-
-# In[1143]:
-
-
-txns.consumer_id_adj.value_counts()
-
-
-# ### Test for one user
-
-# In[1144]:
-
-
-test.head()
-
-
-# In[1145]:
-
-
-test_user_id = 962
-test_user_idx = test_user_id - 1
-
-
-# In[1146]:
-
-
-test_user_id in test.consumer_id_adj.values
-
-
-# In[1147]:
-
-
-article_pred_df.iloc[test_user_idx]
-
-
-# In[1148]:
-
-
-article_recommendation = pd.DataFrame(article_pred_df.iloc[test_user_idx].sort_values(ascending=False))
-
-
-# In[1149]:
-
-
-article_recommendation
-
-
-# In[1150]:
-
-
-article_recommendation.reset_index(inplace=True)
-
-
-# In[1151]:
-
-
-article_recommendation.head()
-
-
-# Since the matrix is zero-based, the article ID index that we get is also zero-based. However, our IDs are one-based. So, convert the article ID to one-based by adding 1.
-
-# In[1152]:
-
-
-article_recommendation['index'] = article_recommendation['index'] + 1
-
-
-# In[1153]:
-
-
-article_recommendation.head()
-
-
-# In[1154]:
-
-
-article_recommendation.rename(columns={'index': 'article_id', test_user_idx: 'score'}, inplace=True)
-
-
-# In[1155]:
-
-
-article_recommendation.head()
-
-
-# Merging with the content dataframe to get the article title.
-
-# In[1156]:
-
-
-merged = pd.merge(article_recommendation, cnt, left_on='article_id', right_on='item_id_adj', how='left')
-
-
-# In[1157]:
-
-
-merged.columns
-
-
-# In[1158]:
-
-
-keep = ['article_id', 'score', 'title', 'interaction_type']
-
-
-# In[1159]:
-
-
-merged = merged.drop(columns=[col for col in merged if col not in keep])
-
-
-# In[1160]:
-
-
-merged.head(10)
-
-
-# In[1161]:
-
-
-cnt[cnt['item_id_adj'] == 203]
-
-
-# Some articles have title as NaN. This is because they do not exist in the content DataFrame, meaning they were pulled out of the system, or that data was somehow lost.
-# 
-# These entries can be used for analysis. However, they must not be included in any results.
-
-# In[1162]:
-
-
-merged.shape
-
-
-# In[1163]:
-
-
-merged = merged[~(merged['title'].isna())]
-
-
-# In[1164]:
-
-
-merged.shape
-
-
-# Of the remaining suggestions, some might have been pulled out of the system. Filter those out.
-
-# In[1165]:
-
-
-merged[merged['interaction_type'] == 'content_pulled_out']
-
-
-# In[1166]:
-
-
-merged = merged[merged['interaction_type'] != 'content_pulled_out']
-
-
-# In[1167]:
-
-
-merged.shape
-
-
-# In[1168]:
-
-
-merged.head()
-
-
-# ### Evaluate the predictions of the Collaborative User-based model
-
-# In[1169]:
-
-
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import accuracy_score
-from math import sqrt
-
-
-# In[1170]:
-
-
-data_matrix
-
-
-# In[1171]:
-
-
-data_matrix_test
-
-
-# In[1172]:
-
-
-article_prediction
-
-
-# In[1173]:
-
-
-data_matrix_test_nz = data_matrix_test.nonzero()
-
-
-# In[1174]:
-
-
-prediction = article_prediction[data_matrix_test_nz]
-
-
-# In[1175]:
-
-
-ground_truth = data_matrix_test[data_matrix_test_nz]
-
-
-# #### Mean Absolute Error
-
-# In[1176]:
-
-
-mean_absolute_error(prediction, ground_truth)
-
-
-# #### Root Mean Square Error
-
-# In[1177]:
-
-
-sqrt(mean_squared_error(prediction, ground_truth))
-
-
-# #### Precision
-
-# Out of the recommended items, how many did the user like?
-
-# In[1178]:
-
-
-num_pred = 10
-
-
-# In[1179]:
-
-
-predicted_article_ids_for_user = merged['article_id'].values[:num_pred]
-
-
-# In[1180]:
-
-
-predicted_article_ids_for_user
-
-
-# In[1181]:
-
+def to_rating(val):
+    # #### Introduce a ratings column
+    if val == 'content_followed':
+        return 5
+    if val == 'content_commented_on':
+        return 4
+    if val == 'content_saved':
+        return 3
+    if val == 'content_liked':
+        return 2
+    return 1
 
 def get_articles_that_user_liked(user_id):
     # For this, we get all the articles that user has given a rating of more than the average rating
@@ -1354,93 +56,6 @@ def get_articles_that_user_liked(user_id):
 
     return user_interactions[['item_id_adj', 'rating']]
 
-
-# Since in the txns DataFrame, all IDs are 1-indexed, we can use the test user ID as it is.
-
-# In[1182]:
-
-
-user_interactions = get_articles_that_user_liked(test_user_id)
-
-
-# In[1183]:
-
-
-user_interactions.head()
-
-
-# In[1184]:
-
-
-actual_article_ids_for_user = user_interactions['item_id_adj'].values
-
-
-# In[1185]:
-
-
-set(predicted_article_ids_for_user)
-
-
-# In[1186]:
-
-
-set(actual_article_ids_for_user)
-
-
-# Get intersection of predictions and user interactions
-
-# In[1187]:
-
-
-set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
-
-
-# In[1188]:
-
-
-correctly_predicted_article_ids = set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
-
-
-# Some of the articles that user liked are identified
-
-# Precision = #Correct predictions / #Predictions
-
-# In[1189]:
-
-
-precision = len(correctly_predicted_article_ids) / len(predicted_article_ids_for_user)
-
-
-# In[1190]:
-
-
-precision
-
-
-# #### Recall
-
-# Recall is the ratio of liked articles that the system is able to identify correctly
-
-# Recall = #Correct Predictions / #Liked Articles
-
-# In[1191]:
-
-
-recall = len(correctly_predicted_article_ids) / len(actual_article_ids_for_user)
-
-
-# In[1192]:
-
-
-recall
-
-
-# In order to evaluate the filtering method over the entire test data, get the metrics as defined above, and take the average
-
-# In[1193]:
-
-
-# Helper methods
 def evaluate_user_based_filtering(test):
     # For each unique consumer_id_adj in the test DataFrame, we will evaluate the precision and recall
     # of the user-based filtering algorithm
@@ -1485,21 +100,396 @@ def evaluate_user_based_filtering(test):
     # Return the average precision and recall as a tuple
     return (total_precision / num_users, total_recall / num_users)
 
+# Main methods
 
-# In[1194]:
+def load():
+    # ### The Basics - Loading data
+    import pandas as pd
+    import numpy as np
 
+    import plotly.express as px
+
+    txns = pd.read_csv('../data/consumer_transanctions.csv')
+    cnt = pd.read_csv('../data/platform_content.csv')
+
+    return txns, cnt
+
+def prepare(txns, cnt):
+    from gensim.utils import simple_preprocess
+    import nltk
+    nltk.download('stopwords')
+    from nltk.corpus import stopwords
+
+    # ### Data preparation
+    # #### Drop unnecessary columns
+    # Drop country, consumer_location, consumer_device_info, consumer_session_id from txns
+    txns.drop(columns=['country', 'consumer_location', 'consumer_device_info', 'consumer_session_id'], inplace=True)
+
+    # Drop producer_id, producer_session_id, producer_device_info, producer_location, producer_country, item_type from cnt
+    cnt.drop(columns=['producer_id', 'producer_session_id', 'producer_device_info', 'producer_location', 'producer_country', 'item_type'], inplace=True)
+
+    content = cnt
+
+    # #### Remove all docs that are not in English
+
+    content.language.value_counts()
+
+    content = content[content['language'] == 'en']
+
+    # #### Handle articles with duplicated entries
+    no_dups = content.sort_values('event_timestamp').drop_duplicates(subset=['title', 'text_description'], keep='last')
+
+    no_dups.reset_index(inplace=True)
+
+    cnt = no_dups
+
+    # Introduce rating
+    txns['rating'] = txns.interaction_type.apply(lambda x: to_rating(x))
+
+    # #### Introduce keywords
+    cnt['text_description_preprocessed'] = cnt['text_description'].apply(lambda x: simple_preprocess(x, deacc=True))
+
+    stopwords_en = stopwords.words('english')
+
+    cnt['text_description_no_stopwords'] = cnt['text_description_preprocessed'].apply(lambda x: [word for word in x if word not in stopwords_en])
+
+    from nltk.stem import WordNetLemmatizer
+    lemmatizer = WordNetLemmatizer()
+
+    cnt['text_description_lemmatized'] = cnt['text_description_no_stopwords'].apply(lambda x: [lemmatizer.lemmatize(word) for word in x])
+
+    # Drop the columns we don't need anymore
+    cnt.drop(['text_description_preprocessed', 'text_description_no_stopwords'], axis=1, inplace=True)
+    
+    return txns, cnt
+
+def adjust_ids(txns, cnt):
+    # #### Adjust IDs
+    # The user and document IDs in the data make no sense. So create new IDs that start from 1.
+    consumer_helper = IdHelper()
+    item_helper = IdHelper()
+
+    txns['consumer_id_adj'] = txns['consumer_id'].map(lambda x: consumer_helper.translate(x))
+
+    txns['item_id_adj'] = txns['item_id'].map(lambda x: item_helper.translate(x))
+
+    # Drop item_id and consumer_id from txns
+    txns.drop(columns=['item_id', 'consumer_id'], inplace=True)
+
+    # Same for content.
+    cnt['item_id_adj'] = cnt['item_id'].map(lambda x: item_helper.translate(x))
+
+    # Drop item_id from cnt
+    cnt.drop(columns=['item_id'], inplace=True)
+
+    return txns, cnt
+
+def adjust_ratings(txns, cnt):
+    # ### EDA
+    # #### Checking for missing values
+    # #### Checking for duplicated ratings
+    import pandas as pd
+
+    txns_2 = txns[['consumer_id_adj', 'item_id_adj', 'rating']]
+
+    duplicates = txns[txns.duplicated(subset=['consumer_id_adj', 'item_id_adj'], keep=False)]
+
+    duplicates.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
+
+    # There are duplicated entries i.e., the same user has interacted with the same article multiple times.
+    # Since multiple interactions could mean that a user liked an article, the duplicates must be considered in the analysis.
+    # #### For "duplicated" transactions, calculate the average rating of the user for that article
+
+    grp = duplicates.groupby(by=['consumer_id_adj', 'item_id_adj'])['rating'].mean()
+
+    grp_df = pd.DataFrame(grp)
+
+    # Renaming the rating column to avoid any potential clash when merged with the original
+
+    grp_df.columns = ['rating_sum']
+
+    grp_df.reset_index(inplace=True)
+
+    # Check distributions of ratings
+    # fig = px.box(grp_df, y='rating_sum')
+    # fig.show()
+
+
+    # A majority of the articles are rated 2 or lower. Only a very small number of transactions have a high rating. However, these are not outliers. This is expected, as users would only like a small percentage of the articles in the system.
+
+    # #### Add the adjusted rating back to the original transactions DataFrame
+    no_dups = txns.drop_duplicates(subset=['consumer_id_adj', 'item_id_adj'])
+
+    no_dups.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
+
+    # Merge the two DataFrames
+    txns_merged = pd.merge(left=no_dups, right=grp_df, left_on=['consumer_id_adj', 'item_id_adj'], right_on=['consumer_id_adj', 'item_id_adj'], how='left')
+
+    txns_merged.sort_values(by=['consumer_id_adj', 'item_id_adj', 'rating'], inplace=True)
+
+    # Rows that have rating_sum as NaN were not duplicated in the original. So, the summed rating would just be the rating for these rows.
+    txns_merged['ratings_merged'] = txns_merged.rating_sum.fillna(txns_merged.rating)
+
+    # txns_merged.ratings_merged.describe()
+    # The rating is between 1 and 5, so that is good enough.
+
+    txns_merged.drop(columns=['rating_sum'], inplace=True)
+
+    txns_merged.rename(columns={'rating': 'rating_original'}, inplace=True)
+
+    # txns_merged.rename(columns={'ratings_scaled': 'rating'}, inplace=True)
+    txns_merged.rename(columns={'ratings_merged': 'rating'}, inplace=True)
+
+    txns = txns_merged
+
+    txns.drop(columns=['interaction_type'], inplace=True)
+
+    # Consolidated Ratings are between 1 and 4.5, which is expected.
+
+    return txns, cnt
+
+def do_topic_modeling(txns, cnt):
+    # ### Topic Modelling
+
+    # Try to create some basic topics under which each article may be categorized
+
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.decomposition import NMF
+    import pandas as pd
+    import numpy as np
+
+    # #### Feature extraction
+
+    vec = TfidfVectorizer(stop_words='english')
+    X = vec.fit_transform(cnt['text_description'])
+
+    # #### NMF Decomposition
+    num_topics = 10
+    nmf = NMF(n_components=num_topics, random_state=42)
+    doc_topic = nmf.fit_transform(X)
+    topic_term = nmf.components_
+
+    # Getting the top 10 words for each topic
+
+    words = np.array(vec.get_feature_names())
+    topic_words = pd.DataFrame(
+        np.zeros((num_topics, 10)),
+        index=['topic_{}'.format(i + 1) for i in range(num_topics)],
+        columns=['word_{}'.format(i + 1) for i in range(10)]
+    ).astype(str)
+
+    # Populating topic_words
+
+    for i in range(num_topics):
+        idx = topic_term[i].argsort()[::-1][:10]
+        topic_words.iloc[i] = words[idx]
+
+    # Create a topic mapping for topic_words
+    # The topics in order are: 'Digital Marketing', 'E-Commerce', 'Cloud Computing', 'Data Science & Machine Learning', 'Cryptocurrency', 'Google', 'Apple', 'Facebook', 'Operating Systems & Runtimes', 'Computer Programming'
+    topic_mapping = {
+        'topic_1': 'Digital Marketing',
+        'topic_2': 'E-Commerce',
+        'topic_3': 'Cloud Computing',
+        'topic_4': 'Data Science & Machine Learning',
+        'topic_5': 'Cryptocurrency',
+        'topic_6': 'Google',
+        'topic_7': 'Apple',
+        'topic_8': 'Facebook',
+        'topic_9': 'Operating Systems & Runtimes',
+        'topic_10': 'Computer Programming'
+    }
+
+    doc_topic_df = pd.DataFrame(doc_topic, columns=['topic_{}'.format(i + 1) for i in range(num_topics)])
+
+    # Get the 5 topics with the highest probabilities for each document
+    doc_topic_df['top_topics'] = doc_topic_df.apply(lambda x: x.sort_values(ascending=False).index[:5].tolist(), axis=1)
+
+    # Get the mapping for doc_topic_df.top_topics from topic_mapping and create a new column
+    doc_topic_df['top_topics_mapped'] = doc_topic_df.top_topics.apply(lambda x: [topic_mapping[i] for i in x])
+
+    # Add doc_topic_df.top_topics_mapped to cnt
+    cnt = pd.concat([cnt, doc_topic_df.top_topics_mapped], axis=1)
+
+    # Rename cnt.top_topics_mapped to cnt.topics
+    cnt.rename(columns={'top_topics_mapped': 'topics'}, inplace=True)
+
+    return txns, cnt
+
+def create_and_populate_user_article_matrix(data):
+    import numpy as np
+    data_matrix = np.zeros((n_users, n_articles))
+
+    for line in data.itertuples():
+        # print(line)
+        # print(type(line))
+        # print(f'UserId: {line.consumer_id_adj}, ArticleId: {line.item_id_adj}, Rating: {line.rating}')
+        # break
+        user_id = line.consumer_id_adj
+        article_id = line.item_id_adj
+        rating = line.rating
+
+        data_matrix[user_id - 1, article_id - 1] = rating
+    
+    return data_matrix
+
+def main():
+    if not load_done:
+        txns, cnt = load()
+
+        txns, cnt = prepare(txns, cnt)
+
+        txns, cnt = adjust_ids(txns, cnt)
+
+        txns, cnt = adjust_ratings(txns, cnt)
+
+        txns, cnt = do_topic_modeling(txns, cnt)
+
+        # With this, we have some idea of what topics each article is talking about.
+
+
+
+        load_done = True
+
+
+import sklearn
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import accuracy_score
+from sklearn.metrics.pairwise import pairwise_distances
+
+import numpy as np
+import pandas as pd
+from math import sqrt
+
+class UserBasedCollaborative:
+    train = None
+    test = None
+    user_similarity = None
+    article_similarity = None
+
+    def __init__(self, txns):
+        # ### Train test split
+        self.train, self.test = sklearn.model_selection.train_test_split(txns, test_size=0.3, random_state=42)
+
+        # ### User-Article matrix
+        # Since this is collaborative filtering, we will consider the transactions matrix. From this, we construct a matrix of the ratings given by users for each product.
+        # Populate the training matrix
+        # Fill the training matrix with rating values
+        data_matrix = create_and_populate_user_article_matrix(self.train)
+
+        # Populate the testing matrix
+        data_matrix_test = create_and_populate_user_article_matrix(self.test)
+
+        # ### Pairwise Distance
+        self.user_similarity = 1 - pairwise_distances(data_matrix, metric='cosine')
+
+        # Take the transpose of the data matrix in order to calculate the article similarity. Will be used later.
+        self.article_similarity = 1 - pairwise_distances(data_matrix.T, metric='cosine')
+
+        # ### Get dot product of data matrix with similarity matrix
+        article_prediction = np.dot(self.user_similarity, data_matrix_test)
+
+        article_pred_df = pd.DataFrame(article_prediction)
+# ## Getting articles for a User
+
+# Consider user-based collaborative filtering, and ALS. Whichever gives the best result would be the model to use.
+
+# ### User-based collaborative filtering
+n_users = txns.consumer_id_adj.nunique()
+
+n_articles = txns.item_id_adj.nunique()
+
+print(f'Num users: {n_users}, Num articles: {n_articles}')
+
+
+# ***************************** EVALUTATION *****************************
+# ### Test for one user
+test_user_id = 962
+test_user_idx = test_user_id - 1
+
+article_recommendation = pd.DataFrame(article_pred_df.iloc[test_user_idx].sort_values(ascending=False))
+
+article_recommendation.reset_index(inplace=True)
+
+# Since the matrix is zero-based, the article ID index that we get is also zero-based. However, our IDs are one-based. So, convert the article ID to one-based by adding 1.
+article_recommendation['index'] = article_recommendation['index'] + 1
+
+article_recommendation.rename(columns={'index': 'article_id', test_user_idx: 'score'}, inplace=True)
+
+# Merging with the content dataframe to get the article title.
+merged = pd.merge(article_recommendation, cnt, left_on='article_id', right_on='item_id_adj', how='left')
+
+keep = ['article_id', 'score', 'title', 'interaction_type']
+
+merged = merged.drop(columns=[col for col in merged if col not in keep])
+
+# Some articles have title as NaN. This is because they do not exist in the content DataFrame, meaning they were pulled out of the system, or that data was somehow lost.
+# 
+# These entries can be used for analysis. However, they must not be included in any results.
+
+merged = merged[~(merged['title'].isna())]
+
+# Of the remaining suggestions, some might have been pulled out of the system. Filter those out.
+merged = merged[merged['interaction_type'] != 'content_pulled_out']
+
+# ### Evaluate the predictions of the Collaborative User-based model
+data_matrix_test_nz = data_matrix_test.nonzero()
+
+prediction = article_prediction[data_matrix_test_nz]
+
+ground_truth = data_matrix_test[data_matrix_test_nz]
+
+# #### Mean Absolute Error
+mean_absolute_error(prediction, ground_truth)
+
+# #### Root Mean Square Error
+sqrt(mean_squared_error(prediction, ground_truth))
+
+
+# #### Precision
+# Out of the recommended items, how many did the user like?
+num_pred = 10
+
+predicted_article_ids_for_user = merged['article_id'].values[:num_pred]
+
+predicted_article_ids_for_user
+
+# Since in the txns DataFrame, all IDs are 1-indexed, we can use the test user ID as it is.
+
+user_interactions = get_articles_that_user_liked(test_user_id)
+
+actual_article_ids_for_user = user_interactions['item_id_adj'].values
+
+set(predicted_article_ids_for_user)
+
+set(actual_article_ids_for_user)
+
+# Get intersection of predictions and user interactions
+
+set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
+
+correctly_predicted_article_ids = set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
+
+
+# Some of the articles that user liked are identified
+# Precision = #Correct predictions / #Predictions
+precision = len(correctly_predicted_article_ids) / len(predicted_article_ids_for_user)
+
+# #### Recall
+# Recall is the ratio of liked articles that the system is able to identify correctly
+# Recall = #Correct Predictions / #Liked Articles
+recall = len(correctly_predicted_article_ids) / len(actual_article_ids_for_user)
+
+# In order to evaluate the filtering method over the entire test data, get the metrics as defined above, and take the average
 
 # Evaluate the user-based filtering algorithm and store the results in 2 variables
 avg_precision, avg_recall = evaluate_user_based_filtering(test)
-
-
-# In[1195]:
-
 
 # Round the results to 3 decimal places and print them
 print('Average precision: ', round(avg_precision, 3))
 print('Average recall: ', round(avg_recall, 3))
 
+# *************************************** EVALUATION DONE ***************************************
 
 # Check if ALS does better.
 
@@ -1723,7 +713,7 @@ csr_article_array = sparse_article_user.toarray()
 # In[1222]:
 
 
-get_ipython().run_line_magic('pip', 'install implicit')
+# get_ipython().run_line_magic('pip', 'install implicit')
 
 
 # In[1223]:
