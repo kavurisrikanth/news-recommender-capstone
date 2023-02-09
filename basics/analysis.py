@@ -68,10 +68,10 @@ class Collaborative:
         # Since this is collaborative filtering, we will consider the transactions matrix. From this, we construct a matrix of the ratings given by users for each product.
         # Populate the training matrix
         # Fill the training matrix with rating values
-        data_matrix = create_and_populate_user_article_matrix(self.train)
+        data_matrix = create_and_populate_user_article_matrix(self.train, data.n_users, data.n_articles)
 
         # Populate the testing matrix
-        data_matrix_test = create_and_populate_user_article_matrix(self.test)
+        data_matrix_test = create_and_populate_user_article_matrix(self.test, data.n_users, data.n_articles)
 
         # ### Pairwise Distance
         user_similarity = 1 - pairwise_distances(data_matrix, metric='cosine')
@@ -424,8 +424,6 @@ def load(data):
     data.txns = pd.read_csv('../data/consumer_transanctions.csv')
     data.cnt = pd.read_csv('../data/platform_content.csv')
 
-    data.onload()
-
 def prepare(data):
     from gensim.utils import simple_preprocess
     import nltk
@@ -638,9 +636,9 @@ def do_topic_modeling(data):
 
     data.cnt = cnt
 
-def create_and_populate_user_article_matrix(data):
+def create_and_populate_user_article_matrix(data, n_users, n_articles):
     import numpy as np
-    data_matrix = np.zeros((data.n_users, data.n_articles))
+    data_matrix = np.zeros((n_users, n_articles))
 
     for line in data.itertuples():
         # print(line)
@@ -655,15 +653,17 @@ def create_and_populate_user_article_matrix(data):
     
     return data_matrix
 
-def main():
+def get_data():
     data = GlobalData()
-    
+
     if not data.load_done:
         load(data)
 
         prepare(data)
 
         adjust_ids(data)
+
+        data.onload()
 
         adjust_ratings(data)
 
@@ -676,6 +676,8 @@ def main():
         data.content_based = ContentBased(data)
 
         data.load_done = True
+
+    return data
 
 # **************************** HYBRID RECOMMENDATIONS ****************************
 # There isn't much overlap between the item-based collaborative, content-based, and ALS results.
