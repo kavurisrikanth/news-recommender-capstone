@@ -351,23 +351,26 @@ def main():
         load_done = True
 
 
-import sklearn
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import accuracy_score
-from sklearn.metrics.pairwise import pairwise_distances
 
-import numpy as np
-import pandas as pd
 from math import sqrt
 
-class UserBasedCollaborative:
+# ### User-based collaborative filtering
+# ### Item-based collaborative filtering
+class Collaborative:
     train = None
     test = None
-    user_similarity = None
-    article_similarity = None
+    article_pred_df = None
+    other_article_pred_df = None
 
     def __init__(self, txns):
+        import sklearn
+        from sklearn.metrics import mean_squared_error
+        from sklearn.metrics import mean_absolute_error
+        from sklearn.metrics import accuracy_score
+        from sklearn.metrics.pairwise import pairwise_distances
+
+        import numpy as np
+        import pandas as pd
         # ### Train test split
         self.train, self.test = sklearn.model_selection.train_test_split(txns, test_size=0.3, random_state=42)
 
@@ -381,15 +384,91 @@ class UserBasedCollaborative:
         data_matrix_test = create_and_populate_user_article_matrix(self.test)
 
         # ### Pairwise Distance
-        self.user_similarity = 1 - pairwise_distances(data_matrix, metric='cosine')
+        user_similarity = 1 - pairwise_distances(data_matrix, metric='cosine')
 
         # Take the transpose of the data matrix in order to calculate the article similarity. Will be used later.
         self.article_similarity = 1 - pairwise_distances(data_matrix.T, metric='cosine')
 
         # ### Get dot product of data matrix with similarity matrix
-        article_prediction = np.dot(self.user_similarity, data_matrix_test)
+        article_prediction = np.dot(user_similarity, data_matrix_test)
 
-        article_pred_df = pd.DataFrame(article_prediction)
+        self.article_pred_df = pd.DataFrame(article_prediction)
+
+    def get_articles_for_user_from_user_based(self, user_id, n=-1):
+        import pandas as pd
+        user_idx = user_id - 1
+
+        recommendation = pd.DataFrame(self.article_pred_df.iloc[user_idx].sort_values(ascending=False))
+
+        recommendation.reset_index(inplace=True)
+
+        recommendation['index'] = recommendation['index'] + 1
+
+        recommendation.rename(columns={'index': 'article_id', user_idx: 'score'}, inplace=True)
+
+        merged = pd.merge(recommendation, cnt, left_on='article_id', right_on='item_id_adj', how='left')
+
+        keep = ['article_id', 'title', 'score', 'topics', 'interaction_type']
+
+        merged = merged.drop(columns=[col for col in merged if col not in keep])
+
+        merged = merged[merged['interaction_type'] != 'content_pulled_out']
+
+        # Drop rows with NaN values
+        merged.dropna(inplace=True)
+
+        # Reset the index
+        merged.reset_index(inplace=True, drop=True)
+
+        # Drop interaction_type
+        merged = merged.drop(columns=['interaction_type'])
+
+        # Sort by score
+        merged = merged.sort_values(by='score', ascending=False)
+
+        # Return the top n articles if n is specified
+        if (n > 0):
+            return merged[:n]
+
+        return merged
+
+    def get_articles_matching_article_from_item_based(self, article_id, n=-1, all=False):
+        import pandas as pd
+        article_idx = article_id - 1
+
+        out = pd.DataFrame(self.article_similarity[article_idx], columns=['score'])
+
+        out.reset_index(inplace=True)
+
+        out['index'] = out['index'] + 1
+
+        out.rename(columns={'index': 'item_id_adj'}, inplace=True)
+
+        out.sort_values(by='score', ascending=False, inplace=True)
+
+        # Merge out with cnt on item_id_adj
+        merged = out.merge(cnt, how='left', on='item_id_adj')
+
+        # Keep only item_id_adj, title, score, and topics
+        merged = merged[['item_id_adj', 'title', 'score', 'topics']]
+
+        # Drop rows with NaN values
+        merged.dropna(inplace=True)
+
+        # Reset index
+        merged.reset_index(drop=True, inplace=True)
+
+        # Round score to 3 decimal places
+        merged['score'] = merged['score'].apply(lambda x: round(x, 3))
+
+        # Sort by score
+        merged.sort_values(by='score', ascending=False, inplace=True)
+
+        if n == -1 or all:
+            return merged
+
+        return merged[:n]
+
 # ## Getting articles for a User
 
 # Consider user-based collaborative filtering, and ALS. Whichever gives the best result would be the model to use.
@@ -402,961 +481,148 @@ n_articles = txns.item_id_adj.nunique()
 print(f'Num users: {n_users}, Num articles: {n_articles}')
 
 
-# ***************************** EVALUTATION *****************************
-# ### Test for one user
-test_user_id = 962
-test_user_idx = test_user_id - 1
-
-article_recommendation = pd.DataFrame(article_pred_df.iloc[test_user_idx].sort_values(ascending=False))
-
-article_recommendation.reset_index(inplace=True)
-
-# Since the matrix is zero-based, the article ID index that we get is also zero-based. However, our IDs are one-based. So, convert the article ID to one-based by adding 1.
-article_recommendation['index'] = article_recommendation['index'] + 1
-
-article_recommendation.rename(columns={'index': 'article_id', test_user_idx: 'score'}, inplace=True)
-
-# Merging with the content dataframe to get the article title.
-merged = pd.merge(article_recommendation, cnt, left_on='article_id', right_on='item_id_adj', how='left')
-
-keep = ['article_id', 'score', 'title', 'interaction_type']
-
-merged = merged.drop(columns=[col for col in merged if col not in keep])
-
-# Some articles have title as NaN. This is because they do not exist in the content DataFrame, meaning they were pulled out of the system, or that data was somehow lost.
-# 
-# These entries can be used for analysis. However, they must not be included in any results.
-
-merged = merged[~(merged['title'].isna())]
-
-# Of the remaining suggestions, some might have been pulled out of the system. Filter those out.
-merged = merged[merged['interaction_type'] != 'content_pulled_out']
-
-# ### Evaluate the predictions of the Collaborative User-based model
-data_matrix_test_nz = data_matrix_test.nonzero()
-
-prediction = article_prediction[data_matrix_test_nz]
-
-ground_truth = data_matrix_test[data_matrix_test_nz]
-
-# #### Mean Absolute Error
-mean_absolute_error(prediction, ground_truth)
-
-# #### Root Mean Square Error
-sqrt(mean_squared_error(prediction, ground_truth))
-
-
-# #### Precision
-# Out of the recommended items, how many did the user like?
-num_pred = 10
-
-predicted_article_ids_for_user = merged['article_id'].values[:num_pred]
-
-predicted_article_ids_for_user
-
-# Since in the txns DataFrame, all IDs are 1-indexed, we can use the test user ID as it is.
-
-user_interactions = get_articles_that_user_liked(test_user_id)
-
-actual_article_ids_for_user = user_interactions['item_id_adj'].values
-
-set(predicted_article_ids_for_user)
-
-set(actual_article_ids_for_user)
-
-# Get intersection of predictions and user interactions
-
-set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
-
-correctly_predicted_article_ids = set(predicted_article_ids_for_user) & set(actual_article_ids_for_user)
-
-
-# Some of the articles that user liked are identified
-# Precision = #Correct predictions / #Predictions
-precision = len(correctly_predicted_article_ids) / len(predicted_article_ids_for_user)
-
-# #### Recall
-# Recall is the ratio of liked articles that the system is able to identify correctly
-# Recall = #Correct Predictions / #Liked Articles
-recall = len(correctly_predicted_article_ids) / len(actual_article_ids_for_user)
-
-# In order to evaluate the filtering method over the entire test data, get the metrics as defined above, and take the average
-
-# Evaluate the user-based filtering algorithm and store the results in 2 variables
-avg_precision, avg_recall = evaluate_user_based_filtering(test)
-
-# Round the results to 3 decimal places and print them
-print('Average precision: ', round(avg_precision, 3))
-print('Average recall: ', round(avg_recall, 3))
-
-# *************************************** EVALUATION DONE ***************************************
-
-# Check if ALS does better.
-
-# Expose method to get recommendations for a user
-
-# In[1196]:
-
-
-def get_articles_for_user_from_user_based(user_id, n=-1):
-    user_idx = user_id - 1
-
-    recommendation = pd.DataFrame(article_pred_df.iloc[user_idx].sort_values(ascending=False))
-
-    recommendation.reset_index(inplace=True)
-
-    recommendation['index'] = recommendation['index'] + 1
-
-    recommendation.rename(columns={'index': 'article_id', user_idx: 'score'}, inplace=True)
-
-    merged = pd.merge(recommendation, cnt, left_on='article_id', right_on='item_id_adj', how='left')
-
-    keep = ['article_id', 'title', 'score', 'topics', 'interaction_type']
-
-    merged = merged.drop(columns=[col for col in merged if col not in keep])
-
-    merged = merged[merged['interaction_type'] != 'content_pulled_out']
-
-    # Drop rows with NaN values
-    merged.dropna(inplace=True)
-
-    # Reset the index
-    merged.reset_index(inplace=True, drop=True)
-
-    # Drop interaction_type
-    merged = merged.drop(columns=['interaction_type'])
-
-    # Sort by score
-    merged = merged.sort_values(by='score', ascending=False)
-
-    # Return the top n articles if n is specified
-    if (n > 0):
-        return merged[:n]
-
-    return merged
-
-
-# In[1197]:
-
-
-get_articles_for_user_from_user_based(test_user_id)
-
-
-# In[1198]:
-
-
-get_articles_for_user_from_user_based(test_user_id, 10)
-
-
 # ## Alternating Least Squares method
+class ALS:
+    best_user_based_als = None
+    sparse_user_article = None
 
-# #### Create sparse User-Article matrix
+    def __init__(self):
+        from scipy.sparse import csr_matrix
 
-# In[1199]:
+        # #### Create sparse User-Article matrix
+        # Random values in CSR matrix will be filled with alpha value
+        keep = ['consumer_id_adj', 'item_id_adj', 'rating']
 
+        txns_mod = txns.drop(columns=[col for col in txns.columns if col not in keep])
 
-from scipy.sparse import csr_matrix
+        alpha = 40
 
+        self.sparse_user_article = csr_matrix( ([alpha]*txns_mod.shape[0], (txns_mod['consumer_id_adj'], txns_mod['item_id_adj']) ))
 
-# Random values in CSR matrix will be filled with alpha value
+        # Matrix dimensions match with the number of users & articles, accounting for the extra row at index 0
+        # Convert to array
+        csr_user_array = self.sparse_user_article.toarray()
 
-# In[1200]:
+        # Dimensions match with the matrix
+        # Create article-user sparse matrix
+        self.sparse_article_user = self.sparse_user_article.T.tocsr()
 
+        # Shape matches
+        # csr_article_array = sparse_article_user.toarray()
 
-txns.head()
+        self.train_user()
 
+        self.train_item()
 
-# In[1201]:
+    def train_user(self):
+        from implicit.evaluation import train_test_split
+        from implicit.als import AlternatingLeastSquares
 
+        # #### Create train & test data
+        train, test = train_test_split(self.sparse_user_article, train_percentage=0.8)
 
-keep = ['consumer_id_adj', 'item_id_adj', 'rating']
+        # #### Building the ALS Model
+        # Got best params from tuning
+        # precision@k = 0.144
+        best_user_based_f = 92
+        best_user_based_r = 0.115
+        best_user_based_i = 40
 
-
-# In[1202]:
-
-
-txns_mod = txns.drop(columns=[col for col in txns.columns if col not in keep])
-
-
-# In[1203]:
-
-
-txns_mod.head()
-
-
-# In[1204]:
-
-
-txns_mod.describe()
-
-
-# In[1205]:
-
-
-alpha = 40
-
-
-# In[1206]:
-
-
-txns_mod.shape
-
-
-# In[ ]:
-
-
-
-
-
-# In[1207]:
-
-
-txns_mod.shape[0]
-
-
-# In[1208]:
-
-
-x = [alpha] * txns_mod.shape[0]
-
-
-# In[1209]:
-
-
-len(x)
-
-
-# In[1210]:
-
-
-sparse_user_article = csr_matrix( ([alpha]*txns_mod.shape[0], (txns_mod['consumer_id_adj'], txns_mod['item_id_adj']) ))
-
-
-# In[1211]:
-
-
-sparse_user_article
-
-
-# In[1212]:
-
-
-n_users
-
-
-# In[1213]:
-
-
-n_articles
-
-
-# Matrix dimensions match with the number of users & articles, accounting for the extra row at index 0
-
-# Convert to array
-
-# In[1214]:
-
-
-csr_user_array = sparse_user_article.toarray()
-
-
-# In[1215]:
-
-
-csr_user_array
-
-
-# In[1216]:
-
-
-n_users
-
-
-# In[1217]:
-
-
-len(csr_user_array), len(csr_user_array[0])
-
-
-# Dimensions match with the matrix
-
-# In[1218]:
-
-
-max(csr_user_array[1])
-
-
-# Create article-user sparse matrix
-
-# In[1219]:
-
-
-sparse_article_user = sparse_user_article.T.tocsr()
-
-
-# In[1220]:
-
-
-sparse_article_user
-
-
-# Shape matches
-
-# In[1221]:
-
-
-csr_article_array = sparse_article_user.toarray()
-
-
-# #### Create train & test data
-
-# In[1222]:
-
-
-# get_ipython().run_line_magic('pip', 'install implicit')
-
-
-# In[1223]:
-
-
-from implicit.evaluation import train_test_split
-
-
-# In[1224]:
-
-
-sparse_article_user
-
-
-# In[1225]:
-
-
-train, test = train_test_split(sparse_user_article, train_percentage=0.8)
-
-
-# In[1226]:
-
-
-train
-
-
-# In[1227]:
-
-
-test
-
-
-# #### Building the ALS Model
-
-# In[1228]:
-
-
-from implicit.als import AlternatingLeastSquares
-
-
-# In[1229]:
-
-
-model = AlternatingLeastSquares(factors=60, regularization=0.1, iterations=60, calculate_training_loss=False)
-
-
-# In[1230]:
-
-
-# model
-
-
-# Training
-
-# In[1231]:
-
-
-model.fit(train)
-
-
-# In[1232]:
-
-
-# test
-
-
-# In[ ]:
-
-
-
-
-
-# In[1233]:
-
-
-# test_user_id = 114
-
-
-# In[1234]:
-
-
-user_interactions = get_articles_that_user_liked(test_user_id)
-
-
-# New Implicit API expects (user, item) sparse matrix as input
-
-# In[1235]:
-
-
-model.recommend(test_user_id, sparse_user_article[test_user_id], N=20, filter_already_liked_items=False)
-
-
-# In[1236]:
-
-
-ids, scores = model.recommend(test_user_id, sparse_user_article[test_user_id], N=20, filter_already_liked_items=False)
-
-
-# In[1237]:
-
-
-out = pd.DataFrame({'article_id': ids, 'als_score': scores})
-
-
-# In[1238]:
-
-
-# out
-
-
-# In[1239]:
-
-
-out.head(num_pred)
-
-
-# In[1240]:
-
-
-out.shape
-
-
-# In[1241]:
-
-
-user_interactions.head(10)
-
-
-# In[1242]:
-
-
-user_interactions.shape
-
-
-# In[1243]:
-
-
-actual_article_ids_for_user = set(user_interactions['item_id_adj'].values)
-
-
-# In[1244]:
-
-
-predicted_article_ids_for_user = set(out['article_id'].values)
-
-
-# In[1245]:
-
-
-correctly_predicted_article_ids = actual_article_ids_for_user & predicted_article_ids_for_user
-
-
-# In[1246]:
-
-
-precision = len(correctly_predicted_article_ids) / len(predicted_article_ids_for_user)
-
-
-# In[1247]:
-
-
-recall = len(correctly_predicted_article_ids) / len(actual_article_ids_for_user)
-
-
-# In[1248]:
-
-
-# Print the precision and recall
-print('Precision: ', precision)
-print('Recall: ', recall)
-
-
-# Similar to user-based collaborative filtering, evaluate ALS
-
-# implicit.evaluation already contains a mean_average_precision_at_k method
-
-# In[1249]:
-
-
-from implicit.evaluation import precision_at_k
-
-
-# In[1250]:
-
-
-p_at_k = precision_at_k(model, train, test, K=10)
-
-
-# In[1251]:
-
-
-# Round the results to 3 decimal places and print them
-print('Precision at k: ', round(p_at_k, 3))
-
-
-# Check if better precision@k is possible with hyperparameter tuning
-
-# In[1252]:
-
-
-import itertools
-
-
-# In[1253]:
-
-
-if False:
-    factors = [60, 80, 85, 87, 90, 92, 95, 100]
-    regularization = [0.1, 0.11, 0.115, 0.12, 0.125]
-    iterations = [30, 35, 40, 45, 50, 60]
-
-    # Create a DataFrame to store the results
-    results = pd.DataFrame(columns=['factors', 'regularization', 'iterations', 'precision_at_k'])
-    for (f, r, i) in itertools.product(factors, regularization, iterations):
-        model = AlternatingLeastSquares(factors=f, regularization=r, iterations=i, calculate_training_loss=False)
-        model.fit(train, show_progress=False)
-        p_at_k = precision_at_k(model, train, test, K=10, show_progress=False)
-
-        # Append the results to the DataFrame
-        # Create a temp DataFrame to store the results
-        temp_results = pd.DataFrame([[f, r, i, p_at_k]], columns=['factors', 'regularization', 'iterations', 'precision_at_k'])
-        
-        # Concatenate the temp DataFrame to the results DataFrame
-        results = pd.concat([results, temp_results], ignore_index=True)
-
-
-# In[1254]:
-
-
-if False:
-    # Sort the results by precision_at_k and print the top 5
-    results.sort_values(by='precision_at_k', ascending=False, inplace=True)
-    results.head()
-
-
-# Got best params from tuning
-
-# precision@k = 0.144
-
-# In[1255]:
-
-
-best_user_based_f = 92
-best_user_based_r = 0.115
-best_user_based_i = 40
-
-
-# In[1256]:
-
-
-best_user_based_als = AlternatingLeastSquares(
-    factors=best_user_based_f, 
-    regularization=best_user_based_r, 
-    iterations=best_user_based_i, 
-    calculate_training_loss=False
-)
-best_user_based_als.fit(train)
-
-
-# In[1257]:
-
-
-ids, scores = best_user_based_als.recommend(test_user_id, sparse_user_article[test_user_id], N=20, filter_already_liked_items=True)
-
-
-# precision@k is higher than that of User-based collaborative filtering, so ALS can be used for getting articles for a user.
-
-# Expose method
-
-# In[1258]:
-
-
-def get_articles_for_user_from_als(user_id, n=20):
-    global best_user_based_als
-    if not best_user_based_als:
-        best_user_based_als = AlternatingLeastSquares(
+        self.best_user_based_als = AlternatingLeastSquares(
             factors=best_user_based_f, 
             regularization=best_user_based_r, 
             iterations=best_user_based_i, 
             calculate_training_loss=False
         )
-        best_user_based_als.fit(train)
-    id, scores = best_user_based_als.recommend(user_id, sparse_user_article[user_id], N=50, filter_already_liked_items=True)
+        self.best_user_based_als.fit(train)
 
-    out = pd.DataFrame({'item_id_adj': id, 'score': scores})
+    def train_item(self):
+        from implicit.evaluation import train_test_split
+        from implicit.als import AlternatingLeastSquares
+        item_train, item_test = train_test_split(self.sparse_article_user, train_percentage=0.8, random_state=42)
 
-    # Merge out with cnt on item_id_adj
-    merged = out.merge(cnt, how='left', on='item_id_adj')
+        best_article_als_f = 20
+        best_article_als_r = 1.2
+        best_article_als_i = 120
 
-    # Keep only item_id_adj, title, score, and topics
-    merged = merged[['item_id_adj', 'title', 'score', 'topics']]
+        self.best_item_als = AlternatingLeastSquares(
+            factors=best_article_als_f, 
+            regularization=best_article_als_r, 
+            iterations=best_article_als_i, 
+            calculate_training_loss=False
+        )
+        self.best_item_als.fit(item_train)
 
-    # Drop rows with NaN values
-    merged.dropna(inplace=True)
+    def get_articles_for_user_from_als(self, user_id, n=20):
+        import pandas as pd
+        id, scores = self.best_user_based_als.recommend(user_id, self.sparse_user_article[user_id], N=50, filter_already_liked_items=True)
 
-    # Reset index
-    merged.reset_index(drop=True, inplace=True)
+        out = pd.DataFrame({'item_id_adj': id, 'score': scores})
 
-    # Round score to 3 decimal places
-    merged['score'] = merged['score'].apply(lambda x: round(x, 3))
+        # Merge out with cnt on item_id_adj
+        merged = out.merge(cnt, how='left', on='item_id_adj')
 
-    # Sort by score
-    merged.sort_values(by='score', ascending=False, inplace=True)
+        # Keep only item_id_adj, title, score, and topics
+        merged = merged[['item_id_adj', 'title', 'score', 'topics']]
 
-    return merged[:n]
+        # Drop rows with NaN values
+        merged.dropna(inplace=True)
 
+        # Reset index
+        merged.reset_index(drop=True, inplace=True)
 
-# In[1259]:
+        # Round score to 3 decimal places
+        merged['score'] = merged['score'].apply(lambda x: round(x, 3))
 
+        # Sort by score
+        merged.sort_values(by='score', ascending=False, inplace=True)
 
-get_articles_for_user_from_als(test_user_id, n=10)
+        return merged[:n]
 
+    def get_articles_matching_article_from_als(self, article_id, n=20, all=False):
+        import pandas as pd
+        ids, scores = self.best_item_als.similar_items(
+            article_id, item_users=self.sparse_article_user, N=50 if not all else n_articles)
+
+        out = pd.DataFrame({'item_id_adj': ids, 'score': scores})
+
+        merged = pd.merge(out, cnt, how='left', on='item_id_adj')
+
+        keep = ['item_id_adj', 'score', 'title', 'topics']
+
+        merged = merged.drop(columns=[col for col in merged if col not in keep])
+
+        merged.dropna(inplace=True)
+
+        # reset index
+        merged.reset_index(drop=True, inplace=True)
+
+        # round score to 3 decimal places
+        merged['score'] = merged['score'].apply(lambda x: round(x, 3))
+
+        # sort by score
+        merged.sort_values(by='score', ascending=False, inplace=True)
+
+        if all:
+            return merged
+
+        return merged[:n]
+
+# Check if ALS does better.
+# Expose method to get recommendations for a user
 
 # ## Getting articles matching another article
 
 # Consider item-based collaborative filtering and content-based filtering
 
-# ### Item-based collaborative filtering
+
 
 # Use article_similarity matrix constructed earlier
 
-# In[1260]:
-
-
-article_similarity.shape
-
-
-# In[1261]:
-
-
-n_articles
-
-
-# In[ ]:
-
-
-
-
-
-# In[1262]:
-
-
-n_articles
-
-
-# In[1263]:
-
-
-data_matrix_test.shape
-
-
-# In[1264]:
-
-
-data_matrix_test.T.shape
-
-
-# In[1265]:
-
-
-other_article_prediction = np.dot(article_similarity, data_matrix_test.T)
-
-
-# In[1266]:
-
-
-other_article_prediction.shape
-
-
-# In[1267]:
-
-
-other_article_pred_df = pd.DataFrame(other_article_prediction)
-
-
-# In[1268]:
-
-
-other_article_pred_df.head()
-
-
-# #### Test for one article
-
-# In[1269]:
-
-
-test_article_id = 1190
-
-
-# In[1270]:
-
-
-test_article_idx = test_article_id - 1
-
-
-# In[1271]:
-
-
-article_similarity[test_article_idx]
-
-
-# In[1272]:
-
-
-df = pd.DataFrame(article_similarity[test_article_idx], columns=['score'])
-
-
-# In[1273]:
-
-
-df.head()
-
-
-# In[1274]:
-
-
-df.reset_index(inplace=True)
-
-
-# In[1275]:
-
-
-df.head()
-
-
-# In[1276]:
-
-
-df['index'] = df['index'] + 1
-
-
-# In[1277]:
-
-
-df.head()
-
-
-# In[1278]:
-
-
-df.rename(columns={'index': 'item_id_adj'}, inplace=True)
-
-
-# In[1279]:
-
-
-df.sort_values(by='score', ascending=False, inplace=True)
-
-
-# In[1280]:
-
-
-df.head()
-
-
-# In[1281]:
-
-
-cnt[(cnt['item_id_adj'] == 1190) | (cnt['item_id_adj'] == 918)][['item_id_adj', 'title', 'text_description', 'topics']]
-
-
-# In[ ]:
-
-
-
-
-
-# Expose method
-
-# In[1282]:
-
-
-def get_articles_matching_article_from_item_based(article_id, n=-1, all=False):
-    article_idx = article_id - 1
-
-    out = pd.DataFrame(article_similarity[article_idx], columns=['score'])
-
-    out.reset_index(inplace=True)
-
-    out['index'] = out['index'] + 1
-
-    out.rename(columns={'index': 'item_id_adj'}, inplace=True)
-
-    out.sort_values(by='score', ascending=False, inplace=True)
-
-    # Merge out with cnt on item_id_adj
-    merged = out.merge(cnt, how='left', on='item_id_adj')
-
-    # Keep only item_id_adj, title, score, and topics
-    merged = merged[['item_id_adj', 'title', 'score', 'topics']]
-
-    # Drop rows with NaN values
-    merged.dropna(inplace=True)
-
-    # Reset index
-    merged.reset_index(drop=True, inplace=True)
-
-    # Round score to 3 decimal places
-    merged['score'] = merged['score'].apply(lambda x: round(x, 3))
-
-    # Sort by score
-    merged.sort_values(by='score', ascending=False, inplace=True)
-
-    if n == -1 or all:
-        return merged
-
-    return merged[:n]
-
-
-# In[1283]:
-
-
-get_articles_matching_article_from_item_based(test_article_id, n=10)
-
-
 # ### ALS for Articles
-
 # Use sparse_article_user created earlier
 
-# In[1284]:
-
-
-item_train, item_test = train_test_split(sparse_article_user, train_percentage=0.8, random_state=42)
-
-
-# In[1285]:
-
-
-model = AlternatingLeastSquares(factors=60, regularization=0.1, iterations=60, calculate_training_loss=False)
-
-
-# In[1286]:
-
-
-model.fit(item_train)
-
-
-# In[1287]:
-
-
-precision_at_k(model, item_train, item_test, K=10)
-
-
-# Precision@k value is 0.193. Check for a better value with Hyperparameter tuning.
-
-# In[1288]:
-
-
-def item_based_hyperparameter_tuning():
-    factors = [10, 20, 30, 35, 40, 45, 50, 55, 60, 65, 70]
-    regularization = [0.7, 0.8, 0.9, 0.95, 1, 1.1, 1.2, 1.5]
-    iterations = [80, 90, 100, 110, 120, 130, 140, 150]
-
-    # Create a DataFrame to store the results
-    results = pd.DataFrame(columns=['factors', 'regularization', 'iterations', 'precision_at_k'])
-    for (f, r, i) in itertools.product(factors, regularization, iterations):
-        model = AlternatingLeastSquares(factors=f, regularization=r, iterations=i, calculate_training_loss=False)
-        model.fit(train, show_progress=False)
-        p_at_k = precision_at_k(model, item_train, item_test, K=10, show_progress=False)
-
-        # Append the results to the DataFrame
-        # Create a temp DataFrame to store the results
-        temp_results = pd.DataFrame([[f, r, i, p_at_k]], columns=['factors', 'regularization', 'iterations', 'precision_at_k'])
-        
-        # Concatenate the temp DataFrame to the results DataFrame
-        results = pd.concat([results, temp_results], ignore_index=True)
-
-    # Sort the results by precision_at_k and print the top 5
-    results.sort_values(by='precision_at_k', ascending=False, inplace=True)
-    return results
-
-
-# In[1289]:
-
-
-if False:
-    results = item_based_hyperparameter_tuning()
-    print(results.head())
-
-
-# In[ ]:
-
-
-
-
-
 # After hyperparameter tuning
-
-# In[1290]:
-
-
-best_article_als_f = 20
-best_article_als_r = 1.2
-best_article_als_i = 120
-
-
-# In[1291]:
-
-
-best_item_als = AlternatingLeastSquares(
-    factors=best_article_als_f, 
-    regularization=best_article_als_r, 
-    iterations=best_article_als_i, 
-    calculate_training_loss=False
-)
-best_item_als.fit(item_train)
-
-
-# Test for one article
-
-# In[1292]:
-
-
-test_article_id = 1190
-
-
-# In[1293]:
-
-
-ids, scores = best_item_als.recommend(test_article_id, sparse_article_user[test_article_id], N=20, filter_already_liked_items=False)
-
-
-# In[1294]:
-
-
-# Create a DataFrame of the recommended article ids and scores
-collab_out = pd.DataFrame({'article_id': ids, 'Score': scores})
-
-
-# In[1295]:
-
-
-collab_out.head()
-
-
-# In[ ]:
-
-
-
-
-
-# In[1296]:
-
 
 # Define a function to get the article title from the article id
 def get_article_title(article_id):
@@ -1366,10 +632,6 @@ def get_article_title(article_id):
         return None
     return cnt[cnt['item_id_adj'] == article_id]['title'].values[0]
 
-
-# In[1297]:
-
-
 def get_article_topics(article_id):
     # If the article id is not in the article dataframe, log that it is missing
     if article_id not in cnt['item_id_adj'].values:
@@ -1378,334 +640,58 @@ def get_article_topics(article_id):
     return cnt[cnt['item_id_adj'] == article_id]['topics'].values[0]
 
 
-# In[1298]:
-
-
-# Get the article title from the article ids
-collab_out['title'] = collab_out['article_id'].apply(lambda x: get_article_title(x))
-
-
-# In[1299]:
-
-
-collab_out.head()
-
-
-# In[1300]:
-
-
-# Get the article topics from the article ids
-collab_out['topics'] = collab_out['article_id'].apply(lambda x: get_article_topics(x))
-
-
-# In[1301]:
-
-
-collab_out.head()
-
-
-# In[1302]:
-
-
-# Drop rows with missing article titles
-collab_out.dropna(inplace=True)
-
-
-# In[1303]:
-
-
-collab_out
-
 
 # Expose method
 
-# In[1304]:
-
-
-def get_articles_matching_article_from_als(article_id, n=20, all=False):
-    ids, scores = best_item_als.similar_items(
-        article_id, item_users=sparse_article_user, N=50 if not all else n_articles)
-
-    out = pd.DataFrame({'item_id_adj': ids, 'score': scores})
-
-    merged = pd.merge(out, cnt, how='left', on='item_id_adj')
-
-    keep = ['item_id_adj', 'score', 'title', 'topics']
-
-    merged = merged.drop(columns=[col for col in merged if col not in keep])
-
-    merged.dropna(inplace=True)
-
-    # reset index
-    merged.reset_index(drop=True, inplace=True)
-
-    # round score to 3 decimal places
-    merged['score'] = merged['score'].apply(lambda x: round(x, 3))
-
-    # sort by score
-    merged.sort_values(by='score', ascending=False, inplace=True)
-
-    if all:
-        return merged
-
-    return merged[:n]
-
-
-# In[1305]:
-
-
-get_articles_matching_article_from_als(test_article_id, n=10)
-
-
 # ### Content-based filtering
-
 # #### Derive keywords from the article text
-
-# In[1306]:
-
-
-cnt.columns
-
-
-# In[1307]:
-
-
-cnt.head()
-
-
-# In[1308]:
-
-
-cnt.text_description
-
-
-# In[1314]:
-
-
 # Join cnt.text_description_lemmatized into a single list
 words_list = []
 for doc in cnt.text_description_lemmatized:
     words_list.append(doc)
 
-
-# In[1315]:
-
-
-len(words_list)
-
-
-# In[1316]:
-
-
-words_list[0][:10]
-
-
-# In[1317]:
-
-
-cnt.shape
-
-
-# In[1318]:
-
-
-words_list[0]
-
-
-# In[1319]:
-
-
-len(words_list), len(words_list[0]), len(words_list[1])
-
-
-# In[ ]:
-
-
-
-
-
 # #### Create Dictionary, Bag of Words, tfidf model & Similarity matrix
-
-# In[1320]:
-
-
-# %pip install gensim
-
-
-# In[1321]:
-
-
 from gensim.corpora.dictionary import Dictionary
-
-
-# In[1322]:
-
 
 # create a dictionary from words list
 dictionary = Dictionary(words_list)
-
-
-# In[1323]:
-
-
-dictionary
-
-
-# In[1324]:
-
-
-len(dictionary)
-
-
-# In[1325]:
-
 
 number_words = 0
 for word in words_list:
     number_words = number_words + len(word)
 
-
-# In[1326]:
-
-
-number_words
-
-
-# In[1327]:
-
-
-dictionary.get(0), dictionary.get(1), dictionary.get(2)
-
-
 # ##### Generating Bag of Words
-
-# In[1328]:
-
-
 bow = dictionary.doc2bow(words_list[0])
 
-
-# In[1329]:
-
-
-len(words_list[0]), len(bow)
-
-
 # Some words are repeated
-
 # ##### Generating a corpus
-
-# In[1330]:
-
-
 #create corpus where the corpus is a bag of words for each document
 corpus = [dictionary.doc2bow(doc) for doc in words_list] 
 
-
-# In[1331]:
-
-
-len(corpus), len(corpus[0]), len(corpus[1])
-
-
 # All the articles are in the corpus, and the length of the first matches the count in the Bag of Words above
-
 # ##### Use the TfIdf model on the corpus
-
-# In[1332]:
-
-
 from gensim.models.tfidfmodel import TfidfModel
-
-
-# In[1333]:
-
 
 #create tfidf model of the corpus
 tfidf = TfidfModel(corpus) 
 
-
-# In[1334]:
-
-
-tfidf
-
-
-# In[1335]:
-
-
-len(tfidf[corpus[0]])
-
-
-# In[1336]:
-
-
-len(tfidf[corpus[1]])
-
-
 # Again, the lengths are matched
-
 # ##### Generate Similarity matrix
-
-# In[1337]:
-
-
 from gensim.similarities import MatrixSimilarity
 
 # Create the similarity matrix. This is the most important part where we get the similarities between the movies.
 sims = MatrixSimilarity(tfidf[corpus], num_features=len(dictionary))
 
-
-# In[1338]:
-
-
-len(dictionary)
-
-
-# In[1339]:
-
-
 # Flatten words_list into a set of unique words
 words_set = set([word for doc in words_list for word in doc])
 
-
-# In[1340]:
-
-
 len(set(words_set))
-
-
-# 
-
-# In[1341]:
-
-
-sims
-
-
-# In[1342]:
-
-
-sims[corpus[0]]
-
-
-# In[1343]:
-
 
 len(sims[corpus[0]])
 
-
-# In[1344]:
-
-
 len(sims)
 
-
 # #### Generating recommendations
-
-# In[1345]:
-
-
 def article_recommendation(content):
     # get a bag of words from the content
     query_doc_bow = dictionary.doc2bow(content) 
@@ -1723,114 +709,6 @@ def article_recommendation(content):
     # similarity_output = similarity_series.sort_values(ascending=False)
     similarity_output = similarity_series
     return similarity_output
-
-
-# In[1346]:
-
-
-test_article_id
-
-
-# In[1347]:
-
-
-cnt[cnt['item_id_adj'] == test_article_id]
-
-
-# In[1348]:
-
-
-test_desc = cnt[cnt['item_id_adj'] == test_article_id]['text_description_lemmatized'].values[0]
-
-
-# In[1349]:
-
-
-recs = article_recommendation(test_desc)
-
-
-# In[1350]:
-
-
-recs[:10]
-
-
-# In[1351]:
-
-
-recs_df = pd.DataFrame(recs, columns=['Score'])
-
-
-# In[1352]:
-
-
-recs_df.head()
-
-
-# In[1353]:
-
-
-recs_df.reset_index(inplace=True)
-
-
-# In[1354]:
-
-
-recs_df.head()
-
-
-# In[1355]:
-
-
-recs_df.isna().sum()
-
-
-# In[1356]:
-
-
-recs_df = cnt.merge(recs_df, on='item_id_adj', how='left')
-
-
-# In[1357]:
-
-
-recs_df.head()
-
-
-# In[1358]:
-
-
-recs_df.sort_values(by='Score', ascending=False, inplace=True)
-
-
-# In[1359]:
-
-
-recs_df.isna().sum()
-
-
-# In[1360]:
-
-
-keep = ['Score', 'title', 'text_description', 'topics', 'item_id_adj']
-
-
-# In[1361]:
-
-
-recs_df.drop(columns=[col for col in recs_df if col not in keep], inplace=True)
-
-
-# In[1362]:
-
-
-recs_df.head()
-
-
-# Expose method
-
-# In[1363]:
-
 
 def get_articles_matching_article_from_content_based(article_id, n=-1):
     lemmatized_desc = cnt[cnt['item_id_adj'] == article_id]['text_description_lemmatized'].values[0]
@@ -1861,238 +739,97 @@ def get_articles_matching_article_from_content_based(article_id, n=-1):
     return recommendations_df
 
 
-# In[1364]:
-
-
 get_articles_matching_article_from_content_based(test_article_id, n=10)
 
 
 # 
 # #### Comparing item-based and content-based filtering
 
-# In[1365]:
-
-
 num_articles = len(collab_out)
 
-
-# In[1366]:
-
-
 num_articles
-
-
-# In[1367]:
-
 
 # Assign the first num_articles rows from recs_df to content_out
 content_out = recs_df.iloc[:num_articles]
 
-
-# In[1368]:
-
-
 content_out.reset_index(inplace=True)
-
-
-# In[1369]:
-
 
 content_out.head()
 
-
-# In[1370]:
-
-
 cnt[cnt['item_id_adj'] == test_article_id][['title', 'topics']]
-
-
-# In[1371]:
-
 
 # Rename index to article_id
 content_out.rename(columns={'item_id_adj': 'article_id'}, inplace=True)
 content_out.drop(columns=['index'], inplace=True)
 
-
-# In[1372]:
-
-
 content_out.head()
 
-
-# In[1373]:
-
-
 collab_out.head()
-
-
-# In[1374]:
-
 
 # Left join the content_out and collab_out DataFrames on article_id
 out = pd.merge(collab_out, content_out, on='article_id', how='left')
 
-
-# In[1375]:
-
-
 content_out
-
-
-# In[1376]:
-
 
 collab_out
 
-
-# In[1377]:
-
-
 out
-
-
-# In[1378]:
-
 
 content_out.shape
 
 
+# **************************** HYBRID RECOMMENDATIONS ****************************
 # There isn't much overlap between the item-based collaborative, content-based, and ALS results.
-
 # Check if combining with ALS improves the results
-
-# In[ ]:
-
-
-
-
 
 # ### Combining item-based filterings
 
-# In[1379]:
-
-
 item_als_result = get_articles_matching_article_from_als(test_article_id, n=50, all=True)
-
-
-# In[1380]:
-
 
 item_als_result.shape
 
-
-# In[1381]:
-
-
 item_collab_result = get_articles_matching_article_from_item_based(test_article_id)
-
-
-# In[1382]:
-
 
 item_collab_result.shape
 
-
-# In[1383]:
-
-
 item_content_result = get_articles_matching_article_from_content_based(test_article_id)
-
-
-# In[1384]:
-
 
 item_content_result.shape
 
 
 # #### Normalizing the similarity scores using Min-Max normalization
 
-# In[1385]:
-
-
 # Normalize the scores in item_als_result
 item_als_result['normalized_score_als'] = (item_als_result['score'] - min(item_als_result['score'])) / (max(item_als_result['score']) - min(item_als_result['score']))
 
-
-# In[1386]:
-
-
 min(item_als_result['score'])
 
-
-# In[1387]:
-
-
 item_als_result.head()
-
-
-# In[1388]:
-
 
 # Normalize the scores in item_collab_result
 item_collab_result['normalized_score_collab'] = (item_collab_result['score'] - min(item_collab_result['score'])) / (max(item_collab_result['score']) - min(item_collab_result['score']))
 
-
-# In[1389]:
-
-
 min(item_collab_result['score'])
 
-
-# In[1390]:
-
-
 item_collab_result.head()
-
-
-# In[1391]:
-
 
 # Normalize the scores in item_content_result
 item_content_result['normalized_score_content'] = (item_content_result['score'] - min(item_content_result['score'])) / (max(item_content_result['score']) - min(item_content_result['score']))
 
-
-# In[1392]:
-
-
 min(item_content_result['score'])
-
-
-# In[1393]:
-
 
 item_content_result.head()
 
 
 # #### Item-based & content-based
 
-# In[1394]:
-
-
 item_collab_result.head()
-
-
-# In[1395]:
-
 
 item_content_result.head()
 
-
-# In[1396]:
-
-
 item_content_hybrid = pd.merge(item_content_result, item_collab_result, on='item_id_adj', how='left')
 
-
-# In[1397]:
-
-
 item_content_hybrid.shape
-
-
-# In[1398]:
-
 
 item_content_hybrid.isna().sum()
 
