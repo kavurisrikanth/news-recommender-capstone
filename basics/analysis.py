@@ -7,10 +7,15 @@
 
 # Code committed to: https://github.com/kavurisrikanth/news-recommender-capstone
 
-txns = None
-cnt = None
+class GlobalData:
+    txns = None
+    cnt = None
 
-load_done = False
+    load_done = False
+
+    def onload(self):
+        self.n_users = self.txns.consumer_id_adj.nunique()
+        self.n_articles = self.txns.item_id_adj.nunique()
 
 # Helpers
 
@@ -102,23 +107,26 @@ def evaluate_user_based_filtering(test):
 
 # Main methods
 
-def load():
+def load(data):
     # ### The Basics - Loading data
     import pandas as pd
     import numpy as np
 
     import plotly.express as px
 
-    txns = pd.read_csv('../data/consumer_transanctions.csv')
-    cnt = pd.read_csv('../data/platform_content.csv')
+    data.txns = pd.read_csv('../data/consumer_transanctions.csv')
+    data.cnt = pd.read_csv('../data/platform_content.csv')
 
-    return txns, cnt
+    data.onload()
 
-def prepare(txns, cnt):
+def prepare(data):
     from gensim.utils import simple_preprocess
     import nltk
     nltk.download('stopwords')
     from nltk.corpus import stopwords
+
+    txns = data.txns
+    cnt = data.cnt
 
     # ### Data preparation
     # #### Drop unnecessary columns
@@ -161,13 +169,17 @@ def prepare(txns, cnt):
     # Drop the columns we don't need anymore
     cnt.drop(['text_description_preprocessed', 'text_description_no_stopwords'], axis=1, inplace=True)
     
-    return txns, cnt
+    data.txns = txns
+    data.cnt = cnt
 
-def adjust_ids(txns, cnt):
+def adjust_ids(data):
     # #### Adjust IDs
     # The user and document IDs in the data make no sense. So create new IDs that start from 1.
     consumer_helper = IdHelper()
     item_helper = IdHelper()
+
+    txns = data.txns
+    cnt = data.cnt
 
     txns['consumer_id_adj'] = txns['consumer_id'].map(lambda x: consumer_helper.translate(x))
 
@@ -182,13 +194,14 @@ def adjust_ids(txns, cnt):
     # Drop item_id from cnt
     cnt.drop(columns=['item_id'], inplace=True)
 
-    return txns, cnt
-
-def adjust_ratings(txns, cnt):
+def adjust_ratings(data):
     # ### EDA
     # #### Checking for missing values
     # #### Checking for duplicated ratings
     import pandas as pd
+
+    txns = data.txns
+    cnt = data.cnt
 
     txns_2 = txns[['consumer_id_adj', 'item_id_adj', 'rating']]
 
@@ -246,9 +259,10 @@ def adjust_ratings(txns, cnt):
 
     # Consolidated Ratings are between 1 and 4.5, which is expected.
 
-    return txns, cnt
+    data.txns = txns
+    data.cnt = cnt
 
-def do_topic_modeling(txns, cnt):
+def do_topic_modeling(data):
     # ### Topic Modelling
 
     # Try to create some basic topics under which each article may be categorized
@@ -259,6 +273,8 @@ def do_topic_modeling(txns, cnt):
     import numpy as np
 
     # #### Feature extraction
+
+    cnt = data.cnt
 
     vec = TfidfVectorizer(stop_words='english')
     X = vec.fit_transform(cnt['text_description'])
@@ -313,11 +329,11 @@ def do_topic_modeling(txns, cnt):
     # Rename cnt.top_topics_mapped to cnt.topics
     cnt.rename(columns={'top_topics_mapped': 'topics'}, inplace=True)
 
-    return txns, cnt
+    data.cnt = cnt
 
 def create_and_populate_user_article_matrix(data):
     import numpy as np
-    data_matrix = np.zeros((n_users, n_articles))
+    data_matrix = np.zeros((data.n_users, data.n_articles))
 
     for line in data.itertuples():
         # print(line)
@@ -333,16 +349,17 @@ def create_and_populate_user_article_matrix(data):
     return data_matrix
 
 def main():
-    if not load_done:
-        txns, cnt = load()
+    data = GlobalData()
+    if not data.load_done:
+        load(data)
 
-        txns, cnt = prepare(txns, cnt)
+        prepare(data)
 
-        txns, cnt = adjust_ids(txns, cnt)
+        adjust_ids(data)
 
-        txns, cnt = adjust_ratings(txns, cnt)
+        adjust_ratings(data)
 
-        txns, cnt = do_topic_modeling(txns, cnt)
+        do_topic_modeling(data)
 
         # With this, we have some idea of what topics each article is talking about.
 
@@ -474,11 +491,6 @@ class Collaborative:
 # Consider user-based collaborative filtering, and ALS. Whichever gives the best result would be the model to use.
 
 # ### User-based collaborative filtering
-n_users = txns.consumer_id_adj.nunique()
-
-n_articles = txns.item_id_adj.nunique()
-
-print(f'Num users: {n_users}, Num articles: {n_articles}')
 
 
 # ## Alternating Least Squares method
@@ -624,27 +636,14 @@ class ALS:
 
 # After hyperparameter tuning
 
-# Define a function to get the article title from the article id
-def get_article_title(article_id):
-    # If the article id is not in the article dataframe, log that it is missing
-    if article_id not in cnt['item_id_adj'].values:
-        print('Missing article id: ', article_id)
-        return None
-    return cnt[cnt['item_id_adj'] == article_id]['title'].values[0]
-
-def get_article_topics(article_id):
-    # If the article id is not in the article dataframe, log that it is missing
-    if article_id not in cnt['item_id_adj'].values:
-        print('Missing article id: ', article_id)
-        return None
-    return cnt[cnt['item_id_adj'] == article_id]['topics'].values[0]
-
 
 class ContentBased:
-    def __init__(self, cnt):
+    def __init__(self, data):
         # ### Content-based filtering
         # #### Derive keywords from the article text
         # Join cnt.text_description_lemmatized into a single list
+        self.data = data
+        cnt = data.cnt
         words_list = []
         for doc in cnt.text_description_lemmatized:
             words_list.append(doc)
@@ -694,7 +693,7 @@ class ContentBased:
         similarity_array = self.sims[query_doc_tfidf] 
 
         #Convert to a Series
-        similarity_series = pd.Series(similarity_array.tolist(), index=cnt['item_id_adj']) 
+        similarity_series = pd.Series(similarity_array.tolist(), index=self.data.cnt['item_id_adj']) 
 
         #get the most similar movies 
         # similarity_output = similarity_series.sort_values(ascending=False)
@@ -704,7 +703,7 @@ class ContentBased:
 
     def get_articles_matching_article_from_content_based(self, article_id, n=-1):
         import pandas as pd
-        lemmatized_desc = cnt[cnt['item_id_adj'] == article_id]['text_description_lemmatized'].values[0]
+        lemmatized_desc = self.data.cnt[self.data.cnt['item_id_adj'] == article_id]['text_description_lemmatized'].values[0]
 
         recommendations = self.article_recommendation(lemmatized_desc)
 
@@ -712,7 +711,7 @@ class ContentBased:
 
         recommendations_df.reset_index(inplace=True)
 
-        recommendations_df = cnt.merge(recommendations_df, on='item_id_adj', how='left')
+        recommendations_df = self.data.cnt.merge(recommendations_df, on='item_id_adj', how='left')
 
         recommendations_df.sort_values(by='score', ascending=False, inplace=True)
 
