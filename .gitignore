@@ -2,3 +2,5 @@ Practice
 sites
 Theory
 **/.jovianrc
+__pycache__
+.ipynb_checkpoints

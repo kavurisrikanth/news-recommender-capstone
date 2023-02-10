@@ -17,6 +17,9 @@ class GlobalData:
 
     load_done = False
 
+    consumer_id_helper = None
+    item_id_helper = None
+
     def onload(self):
         self.n_users = self.txns.consumer_id_adj.nunique()
         self.n_articles = self.txns.item_id_adj.nunique()
@@ -386,6 +389,7 @@ class ContentBased:
 class IdHelper:
     _map = {}
     _id = 1
+    _ids = []
 
     def translate(self, id):
         # If a mapping exists for id, then return the mapping
@@ -399,7 +403,11 @@ class IdHelper:
     def __new_id__(self):
         num = self._id
         self._id += 1
+        self._ids.append(num)
         return num
+
+    def is_valid_id(self, id):
+        return id in self._map
 
 def to_rating(val):
     # #### Introduce a ratings column
@@ -482,6 +490,9 @@ def adjust_ids(data):
     # The user and document IDs in the data make no sense. So create new IDs that start from 1.
     consumer_helper = IdHelper()
     item_helper = IdHelper()
+
+    data.consumer_id_helper = consumer_helper
+    data.item_id_helper = item_helper
 
     txns = data.txns
     cnt = data.cnt
@@ -657,18 +668,30 @@ def get_data():
     data = GlobalData()
 
     if not data.load_done:
+        print('*** Loading data...')
+        print('')
         load(data)
 
+        print('*** Preparing data...')
+        print('')
         prepare(data)
 
+        print('*** Adjusting IDs...')
+        print('')
         adjust_ids(data)
 
         data.onload()
 
+        print('*** Adjusting ratings...')
+        print('')
         adjust_ratings(data)
 
+        print('*** Performing Topic Modeling...')
+        print('')
         do_topic_modeling(data)
 
+        print('*** Building models...')
+        print('')
         data.collab = Collaborative(data)
 
         data.als = ALS(data)
