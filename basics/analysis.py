@@ -446,8 +446,8 @@ def prepare(data):
     # Drop country, consumer_location, consumer_device_info, consumer_session_id from txns
     txns.drop(columns=['country', 'consumer_location', 'consumer_device_info', 'consumer_session_id'], inplace=True)
 
-    # Drop producer_id, producer_session_id, producer_device_info, producer_location, producer_country, item_type from cnt
-    cnt.drop(columns=['producer_id', 'producer_session_id', 'producer_device_info', 'producer_location', 'producer_country', 'item_type'], inplace=True)
+    # Drop producer_id, producer_session_id, producer_device_info, producer_location, producer_country from cnt
+    cnt.drop(columns=['producer_id', 'producer_session_id', 'producer_device_info', 'producer_location', 'producer_country'], inplace=True)
 
     content = cnt
 
