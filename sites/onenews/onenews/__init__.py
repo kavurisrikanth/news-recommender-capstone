@@ -1,6 +1,11 @@
 import os
+import threading
 
-from flask import Flask, render_template
+from flask import Flask, render_template, g, url_for
+
+from onenews.analysis import get_data
+
+ANALYSIS_DATA = None
 
 def create_app(test_config=None):
     # create and configure the app
@@ -31,6 +36,14 @@ def create_app(test_config=None):
 
     from . import home
     app.register_blueprint(home.bp)
-    # app.add_url_rule('/', endpoint='home')
+
+    perform_analysis(app, os.path.join(app.root_path, 'data'))
 
     return app
+
+def perform_analysis(app, path):
+    print('*** Performing analysis')
+    global ANALYSIS_DATA
+    ANALYSIS_DATA = get_data(path)
+    print('*** Data ready')
+    print(f'*** Num users: {ANALYSIS_DATA.n_users}')
